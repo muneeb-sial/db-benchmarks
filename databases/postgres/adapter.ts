@@ -53,6 +53,7 @@ export function createAdapter(options: PgFamilyOptions = {}): Adapter {
     capabilities: {
       transactionality: Transactionality.Acid,
       caseInsensitiveLike: false, // needs ILIKE
+      unsupportedWorkloads: [],
     },
     isRetryable,
 

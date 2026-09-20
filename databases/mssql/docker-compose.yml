@@ -1,0 +1,48 @@
+name: bench-mssql
+
+services:
+  mssql:
+    image: mcr.microsoft.com/mssql/server:2022-latest
+
+    # ------------------------------------------------------------------
+    # MEMORY BUDGET  (default: 4 GiB)
+    #
+    #   UP:    DB_MEM_LIMIT=8g MSSQL_MEMORY_MB=4096 docker compose up -d --wait
+    #   DOWN:  DB_MEM_LIMIT=3g MSSQL_MEMORY_MB=1536 docker compose up -d --wait
+    #
+    # ...or use a .env file beside this compose file:
+    #   DB_MEM_LIMIT=8g
+    #   MSSQL_MEMORY_MB=4096
+    #
+    # SQL Server refuses to start below roughly 2 GB total, so 4g is the floor
+    # for a sensible run, not a comfortable cap. MSSQL_MEMORY_MB is "max server
+    # memory": it bounds the buffer pool AND most other caches, so it cannot be
+    # squeezed to the ~25% the other engines get. It defaults to 2048 (50% of
+    # 4g), the smallest value that leaves room for the engine itself. That
+    # difference is real and is recorded in every result file.
+    # ------------------------------------------------------------------
+    mem_limit: ${DB_MEM_LIMIT:-4g}
+    memswap_limit: ${DB_MEM_LIMIT:-4g}
+    mem_swappiness: 0
+    cpus: ${DB_CPU_LIMIT:-4}
+
+    environment:
+      ACCEPT_EULA: "Y"
+      MSSQL_SA_PASSWORD: "Benchmark_Pass1"
+      MSSQL_PID: Developer
+      # Like the other engines, set explicitly: SQL Server would otherwise size
+      # itself from the machine, not the container limit.
+      MSSQL_MEMORY_LIMIT_MB: "${MSSQL_MEMORY_MB:-2048}"
+
+    ports:
+      - "1433:1433"
+
+    healthcheck:
+      # sqlcmd 18 defaults to encrypted connections; -C trusts the self-signed cert.
+      test: ["CMD-SHELL", "/opt/mssql-tools18/bin/sqlcmd -S localhost -U sa -P Benchmark_Pass1 -C -Q 'select 1' || exit 1"]
+      interval: 5s
+      timeout: 5s
+      retries: 30
+      start_period: 20s
+
+    # No volume, and never tmpfs: tmpfs pages count against mem_limit.

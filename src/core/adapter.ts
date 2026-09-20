@@ -29,6 +29,14 @@ export interface Capabilities {
   transactionality: Transactionality;
   /** Whether a LIKE/regex name filter is case-insensitive without extra work. */
   caseInsensitiveLike: boolean;
+  /**
+   * Workload names (`like-tx`, `top-posts`, ...) this engine cannot run
+   * honestly. The harness skips them and records that in the results instead of
+   * benchmarking a fake. Cassandra lists `like-tx`: it has no cross-partition
+   * transaction, so the like-plus-counter operation this benchmark is built
+   * around cannot be expressed atomically there.
+   */
+  unsupportedWorkloads: readonly string[];
 }
 
 export interface User {
@@ -108,7 +116,10 @@ export interface Adapter {
   topPostsByLikes(limit: number): Promise<readonly unknown[]>;
 
   // --- the headline operation ---
-  /** Insert a like AND increment posts.like_count, atomically if the engine can. */
+  /**
+   * Insert a like AND increment posts.like_count, atomically. Engines that list
+   * `like-tx` in `unsupportedWorkloads` never have this called.
+   */
   likePost(userId: number, postId: number): Promise<TxOutcome>;
 
   /**

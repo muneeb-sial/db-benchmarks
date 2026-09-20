@@ -12,12 +12,18 @@
   },
   "dependencies": {
     "@faker-js/faker": "^10.6.0",
+    "cassandra-driver": "^4.9.0",
     "mongodb": "^6.21.0",
+    "mssql": "^12.7.2",
     "mysql2": "^3.24.4",
     "postgres": "^3.4.9"
   },
   "devDependencies": {
+    "@types/mssql": "^12.3.0",
     "@types/node": "^26.6.2",
     "typescript": "~5.9.3"
+  },
+  "overrides": {
+    "adm-zip": "^0.6.1"
   }
 }

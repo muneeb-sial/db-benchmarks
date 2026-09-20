@@ -50,6 +50,7 @@ export function createAdapter(): Adapter {
       transactionality: Transactionality.Acid,
       // Default collations are _ci, so LIKE is case-insensitive for free.
       caseInsensitiveLike: true,
+      unsupportedWorkloads: [],
     },
     isRetryable,
 

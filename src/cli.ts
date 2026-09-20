@@ -193,8 +193,15 @@ async function benchmarkEngine(adapter: Adapter): Promise<EngineResult> {
   );
 
   const cells: Cell[] = [];
+  const skippedWorkloads: { workload: string; reason: string }[] = [];
 
   for (const workload of workloads) {
+    if (adapter.capabilities.unsupportedWorkloads.includes(workload)) {
+      const reason = `${adapter.displayName} cannot run this workload honestly (${adapter.capabilities.transactionality} transactionality)`;
+      console.log(`  ${workload}: skipped — ${reason}`);
+      skippedWorkloads.push({ workload, reason });
+      continue;
+    }
     const modes = workload === 'like-tx' ? contentions : [null];
 
     for (const mode of modes) {
@@ -251,7 +258,9 @@ async function benchmarkEngine(adapter: Adapter): Promise<EngineResult> {
     }
   }
 
-  const integrity = workloads.includes('like-tx') ? await adapter.verifyCounters() : null;
+  // Only check integrity if the like workload actually ran on this engine.
+  const ranLikes = cells.some((c) => c.workload === 'like-tx');
+  const integrity = ranLikes ? await adapter.verifyCounters() : null;
 
   return {
     engine: adapter.engine,
@@ -262,6 +271,7 @@ async function benchmarkEngine(adapter: Adapter): Promise<EngineResult> {
     loadMs: { users: usersMs, posts: postsMs },
     cells,
     integrity,
+    skippedWorkloads,
   };
 }
 
@@ -281,6 +291,7 @@ function skipped(engine: string, displayName: string, reason: string): EngineRes
     loadMs: { users: 0, posts: 0 },
     cells: [],
     integrity: null,
+    skippedWorkloads: [],
     skipped: reason,
   };
 }

@@ -56,6 +56,7 @@ export function createAdapter(): Adapter {
       // at all -- which is exactly what verifyCounters() is built to catch.
       transactionality: Transactionality.Acid,
       caseInsensitiveLike: false, // needs an explicit $options: 'i'
+      unsupportedWorkloads: [],
     },
 
     isRetryable: (err) => hasTransientLabel(err) || mongoCode(err) === WRITE_CONFLICT,

@@ -31,6 +31,8 @@ export interface EngineResult {
   loadMs: { users: number; posts: number };
   cells: Cell[];
   integrity: CounterCheck | null;
+  /** Requested workloads this engine declined to run, with the reason. */
+  skippedWorkloads: { workload: string; reason: string }[];
   skipped?: string;
 }
 
@@ -94,13 +96,31 @@ export function renderMarkdown(run: BenchmarkRun): string {
       continue;
     }
     const i = e.integrity;
-    const flag = i && i.mismatches > 0 ? ' ⚠️' : '';
+    if (!i) {
+      out.push(
+        `| ${e.displayName} | ${e.serverVersion} | ${e.transactionality} | — | _n/a: like-tx not run_ | — |`,
+      );
+      continue;
+    }
+    const flag = i.mismatches > 0 ? ' ⚠️' : '';
     out.push(
       `| ${e.displayName} | ${e.serverVersion} | ${e.transactionality} | ` +
-        `${i?.postsChecked ?? 0} | ${i?.mismatches ?? 0}${flag} | ${i?.worstDrift ?? 0} |`,
+        `${i.postsChecked} | ${i.mismatches}${flag} | ${i.worstDrift} |`,
     );
   }
   out.push('');
+
+  const skippedAny = run.engines.filter((e) => !e.skipped && e.skippedWorkloads.length > 0);
+  if (skippedAny.length > 0) {
+    out.push('## Workloads not run');
+    out.push('');
+    for (const e of skippedAny) {
+      for (const s of e.skippedWorkloads) {
+        out.push(`- **${e.displayName}** — \`${s.workload}\`: ${s.reason}`);
+      }
+    }
+    out.push('');
+  }
 
   out.push('## Memory configuration');
   out.push('');
@@ -172,6 +192,7 @@ export function renderConsole(run: BenchmarkRun): void {
       continue;
     }
     console.log(`\n=== ${e.displayName} ${e.serverVersion} (${e.transactionality}) ===`);
+    for (const s of e.skippedWorkloads) console.log(`not run: ${s.workload} — ${s.reason}`);
     const table = Object.fromEntries(
       e.cells.map((c) => [
         `${cellKey(c)} @${c.concurrency}`,

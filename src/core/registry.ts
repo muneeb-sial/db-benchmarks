@@ -57,6 +57,30 @@ export const ENGINES: Record<string, EngineDescriptor> = {
     },
     load: async () => (await import('../../databases/cockroachdb/adapter.ts')).createAdapter(),
   },
+  mssql: {
+    defaults: {
+      host: '127.0.0.1',
+      port: 1433,
+      user: 'sa',
+      password: 'Benchmark_Pass1',
+      database: 'benchmark',
+      poolSize: 64,
+    },
+    load: async () => (await import('../../databases/mssql/adapter.ts')).createAdapter(),
+  },
+  cassandra: {
+    defaults: {
+      host: '127.0.0.1',
+      port: 9042,
+      // Cassandra ships with authentication off; empty means no credentials.
+      user: '',
+      password: '',
+      // Used as the keyspace name.
+      database: 'benchmark',
+      poolSize: 64,
+    },
+    load: async () => (await import('../../databases/cassandra/adapter.ts')).createAdapter(),
+  },
 };
 
 export const ENGINE_NAMES = Object.keys(ENGINES);
