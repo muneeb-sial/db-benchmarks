@@ -10,6 +10,9 @@ import {
   type User,
 } from '../../src/core/adapter.ts';
 import { withRetry } from '../../src/core/retry.ts';
+import { DIALECTS } from '../../src/sql/dialect.ts';
+import { toRunOut } from '../../src/sql/queries.ts';
+import { createSqlSuite, type SqlExecutor } from '../../src/sql/suite.ts';
 
 /**
  * 2627 unique/primary key constraint violation, 2601 duplicate key in a unique
@@ -59,6 +62,94 @@ export function createAdapter(): Adapter {
     requestTimeout: 60_000,
   });
 
+  /** Binds positional params as @p1..@pn, typed so string params never force index-hostile conversions. */
+  const bind = (req: sql.Request, params: unknown[]): sql.Request => {
+    params.forEach((v, i) => {
+      const name = `p${i + 1}`;
+      if (v instanceof Date) {
+        req.input(name, sql.DateTime2(3), v);
+      } else if (typeof v === 'number') {
+        req.input(name, Number.isInteger(v) && Math.abs(v) < 2 ** 31 ? sql.Int : sql.BigInt, v);
+      } else {
+        req.input(name, sql.VarChar(255), v as string);
+      }
+    });
+    return req;
+  };
+
+  const literal = (v: unknown): string => {
+    if (v instanceof Date) return `'${v.toISOString().slice(0, -1)}'`;
+    if (typeof v === 'number') return String(v);
+    return `'${String(v).replace(/'/g, "''")}'`;
+  };
+
+  const columnType = (type: string) => {
+    switch (type) {
+      case 'int':
+        return sql.Int;
+      case 'timestamp':
+        return sql.DateTime2(3);
+      case 'text':
+        return sql.VarChar(sql.MAX);
+      case 'json':
+        return sql.NVarChar(sql.MAX);
+      default:
+        return sql.VarChar(255);
+    }
+  };
+
+  const executor: SqlExecutor = {
+    async query(text, params) {
+      const r = await bind(db().request(), params).query(text);
+      return toRunOut((r.recordset ?? []) as unknown as ArrayLike<unknown>);
+    },
+    async execute(text) {
+      await db().request().batch(text);
+    },
+    async write(text, params) {
+      await bind(db().request(), params).query(text);
+    },
+    async explain(text, params) {
+      // SHOWPLAN is per-connection state, so run it on one pinned connection
+      // (a transaction) and inline the parameters: under SHOWPLAN the statement
+      // is not executed, and sp_executesql would hide the real plan.
+      let inlined = text;
+      for (let i = params.length; i >= 1; i--) {
+        inlined = inlined.split(`@p${i}`).join(literal(params[i - 1]));
+      }
+      const tx = new sql.Transaction(db());
+      await tx.begin();
+      try {
+        await new sql.Request(tx).batch('set showplan_text on');
+        const r = await new sql.Request(tx).batch(inlined);
+        await new sql.Request(tx).batch('set showplan_text off');
+        const rows = (r.recordset ?? []) as unknown as Array<Record<string, unknown>>;
+        return rows.map((row) => String(Object.values(row)[0])).join('\n');
+      } finally {
+        await tx.rollback().catch(() => {});
+      }
+    },
+    async bulkInsert(table, cols, rows) {
+      const t = new sql.Table(table);
+      t.create = false;
+      for (const c of cols) t.columns.add(c.name, columnType(c.type), { nullable: false });
+      for (const row of rows) {
+        t.rows.add(...(row.map((v, i) => (cols[i]?.type === 'json' ? JSON.stringify(v) : v)) as never[]));
+      }
+      await db().request().bulk(t);
+    },
+    isUniqueViolation: (err) => {
+      const n = sqlNumber(err);
+      return n !== undefined && DUPLICATE_KEYS.has(n);
+    },
+    async scalar(text) {
+      const r = await db().request().query(text);
+      const first = (r.recordset?.[0] ?? null) as Record<string, unknown> | null;
+      const v = first ? Object.values(first)[0] : null;
+      return v === null || v === undefined ? null : Number(v);
+    },
+  };
+
   return {
     engine: 'mssql',
     displayName: 'SQL Server',
@@ -69,6 +160,7 @@ export function createAdapter(): Adapter {
       unsupportedWorkloads: [],
     },
     isRetryable,
+    suite: createSqlSuite(DIALECTS.mssql, executor),
 
     async connect(opts: ConnectOptions) {
       // The container starts with only the system databases. Create ours, and

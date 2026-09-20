@@ -1,12 +1,18 @@
 # db-benchmarks
 
-Transactional benchmarks for **PostgreSQL**, **MySQL**, **MongoDB** and
-**CockroachDB**, written once in TypeScript and runnable unmodified on
-**Node** and **Bun**. Deno is not supported.
+Benchmarks for **PostgreSQL**, **MySQL**, **MongoDB**, **CockroachDB**,
+**SQL Server** and **Cassandra**, written once in TypeScript and runnable
+unmodified on **Node** and **Bun**. Deno is not supported.
 
-The headline workload is a *like*: insert a row into `likes` **and** increment
-the denormalized `posts.like_count`, atomically, under controlled concurrency
-and controlled contention.
+Two things run here:
+
+- **The transactional workload.** A *like*: insert a row into `likes` **and**
+  increment the denormalized `posts.like_count`, atomically, under controlled
+  concurrency and controlled contention.
+- **The write/read suite** ([docs/suite.md](docs/suite.md)). Writes W1-W4 and
+  reads R1-R10 across three query shapes, three read modes, six limits and five
+  concurrency levels, with every number set in
+  [bench.config.json](bench.config.json). Run it with `--suite`.
 
 ## What this measures, and why
 
@@ -68,6 +74,13 @@ Same source, other runtimes:
 bun src/cli.ts --db postgres
 ```
 
+The write/read suite, at a glance:
+
+```bash
+node src/cli.ts --suite --profile smoke --db postgres      # quick end-to-end check
+node src/cli.ts --suite --db postgres --tests r1,r4,w3     # a slice of the matrix
+```
+
 `node src/cli.ts --help` lists every flag. More recipes (all databases, read
 workloads, memory limits, troubleshooting) are in [how-to-run.md](how-to-run.md).
 
@@ -108,11 +121,15 @@ docker exec bench-postgres-postgres-1 psql -U postgres -d benchmark -c 'show sha
 
 ```
 src/core/       adapter contract, closed-loop runner, stats, retry, reporting
-src/dataset/    seeded user/post generation
+src/dataset/    seeded user/post generation (like-tx)
 src/workloads/  like-tx (with contention modes) and read workloads
-databases/      one folder per engine: adapter.ts + docker-compose.yml
+src/suite/      the write/read suite: config, data, test matrix, runner, reports
+src/sql/        SQL dialects and the query builder shared by the SQL engines
+databases/      one folder per engine: adapter.ts + docker-compose.yml (+ suite.ts)
 databases/_template/   how to add an engine
-results/        <run-id>/result.json + result.md
+bench.config.json      every number the suite uses
+docs/suite.md          the suite: each test, its configuration and results
+results/        <run-id>/result.json, result.md, and the suite's tables/charts
 ```
 
 Adding a database means copying `databases/_template/` and adding one line to
@@ -162,17 +179,33 @@ engine.
 - Results below were produced on one machine. Run it on yours before drawing
   conclusions.
 
-## Cassandra, and why it isn't here
+## Cassandra: what it does and doesn't run
 
-Through 5.x Cassandra cannot perform the cross-partition transaction this
-benchmark is built around. A logged `BATCH` gives atomicity but **no
+Through 5.x Cassandra cannot perform the cross-partition transaction the like
+workload is built around. A logged `BATCH` gives atomicity but **no
 isolation**; `LWT` is single-partition only; counter columns are
 non-idempotent, so a retry after a timeout double-counts. Accord — the genuine
 strict-serializable feature, widely misreported as shipping in 5.0 — arrives in
 **Cassandra 6**, is still pre-GA, and requires the Cluster Metadata Service to
-be initialized first. The adapter contract carries a `transactionality` field
-so that if Cassandra is added, its numbers can never be silently compared
-against Postgres'.
+be initialized first.
+
+So Cassandra is included, but **`like-tx` and `top-posts` are skipped for it**,
+with the reason recorded in the results, rather than benchmarking a weaker
+operation that looks comparable. In the suite it runs what the engine can do
+(inserts, unique-key inserts via LWT, key lookups, token-paged and indexed
+reads) and reports the rest as `N/A` with a reason: joins, `OFFSET`, sorting,
+text search and JSON. The adapter contract carries a `transactionality` field
+so its numbers can never be silently compared against Postgres'.
+
+## SQL Server
+
+Runs everything except JSON (2022 has no JSON type) and full-text (the
+container image ships without that component); both are recorded as `N/A`.
+`READ_COMMITTED_SNAPSHOT` is switched on so its default locking `READ COMMITTED`
+does not make the comparison structurally unfair against the engines that use
+row versioning. SQL Server refuses to start below about 2 GB, so its cache is
+50% of the container limit rather than 25%; the difference is recorded in every
+result file.
 
 ## Latest results
 

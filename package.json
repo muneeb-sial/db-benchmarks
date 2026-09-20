@@ -7,6 +7,8 @@
   "scripts": {
     "bench": "node src/cli.ts",
     "bench:bun": "bun src/cli.ts",
+    "suite": "node src/cli.ts --suite",
+    "suite:smoke": "node src/cli.ts --suite --profile smoke",
     "render": "node scripts/render-results.ts",
     "typecheck": "tsc --noEmit"
   },

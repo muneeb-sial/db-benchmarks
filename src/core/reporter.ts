@@ -11,6 +11,8 @@ import path from 'node:path';
 import type { CounterCheck, Transactionality } from './adapter.ts';
 import type { RunResult } from './runner.ts';
 import type { HostInfo } from './runtime.ts';
+import type { SuiteEngineResult } from '../suite/results.ts';
+import { writeSuiteReports } from '../suite/report.ts';
 
 export interface Cell {
   workload: string;
@@ -33,6 +35,8 @@ export interface EngineResult {
   integrity: CounterCheck | null;
   /** Requested workloads this engine declined to run, with the reason. */
   skippedWorkloads: { workload: string; reason: string }[];
+  /** Results of the write/read benchmark suite (features.md), when it ran. */
+  suite?: SuiteEngineResult;
   skipped?: string;
 }
 
@@ -55,6 +59,7 @@ export async function writeResults(run: BenchmarkRun, outDir: string): Promise<s
   const jsonPath = path.join(dir, 'result.json');
   await writeFile(jsonPath, JSON.stringify(run, null, 2), 'utf8');
   await writeFile(path.join(dir, 'result.md'), renderMarkdown(run), 'utf8');
+  await writeSuiteReports(run, dir);
 
   return jsonPath;
 }
@@ -206,7 +211,17 @@ export function renderConsole(run: BenchmarkRun): void {
         },
       ]),
     );
-    console.table(table);
+    if (e.cells.length > 0) console.table(table);
+    if (e.suite) {
+      const counts: Record<string, number> = {};
+      for (const c of e.suite.cells) counts[c.status] = (counts[c.status] ?? 0) + 1;
+      console.log(
+        'suite: ' +
+          Object.entries(counts)
+            .map(([status, count]) => `${count} ${status}`)
+            .join(', '),
+      );
+    }
     if (e.integrity) {
       const { mismatches, postsChecked, worstDrift } = e.integrity;
       const verdict = mismatches === 0 ? 'OK' : `FAILED (worst drift ${worstDrift})`;

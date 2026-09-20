@@ -3,6 +3,7 @@
  *
  *   node src/cli.ts --db postgres --workload like-tx --duration 10
  *   bun  src/cli.ts --db postgres,mysql --concurrency 1,8,32
+ *   node src/cli.ts --suite --profile smoke --db postgres --tests r1,r4
  */
 
 import process from 'node:process';
@@ -19,9 +20,12 @@ import {
   type Cell,
   type EngineResult,
 } from './core/reporter.ts';
-import { chunk, generate } from './dataset/generate.ts';
+import { chunk, generate, type Dataset } from './dataset/generate.ts';
 import { buildLikeOp, Contention } from './workloads/like-tx.ts';
 import { buildReadOp, ReadWorkload } from './workloads/read.ts';
+import { loadConfig, type SuiteConfig } from './suite/config.ts';
+import { runSuite } from './suite/run.ts';
+import { ALL_TEST_IDS, parseTests } from './suite/tests.ts';
 import type { Adapter } from './core/adapter.ts';
 
 assertSupportedRuntime();
@@ -29,12 +33,14 @@ assertSupportedRuntime();
 const { values } = parseArgs({
   options: {
     db: { type: 'string', default: ENGINE_NAMES.join(',') },
-    workload: { type: 'string', default: 'like-tx' },
+    // No defaults for the next five: legacy runs and the suite have different
+    // defaults, and the suite must be able to tell "not given" from "given".
+    workload: { type: 'string' },
+    concurrency: { type: 'string' },
+    duration: { type: 'string' },
+    warmup: { type: 'string' },
+    repeats: { type: 'string' },
     contention: { type: 'string', default: 'uniform,hot' },
-    concurrency: { type: 'string', default: '1,8,32,64' },
-    duration: { type: 'string', default: '10' },
-    warmup: { type: 'string', default: '3' },
-    repeats: { type: 'string', default: '3' },
     users: { type: 'string', default: '20000' },
     'posts-per-user': { type: 'string', default: '2' },
     limit: { type: 'string', default: '1000' },
@@ -42,6 +48,10 @@ const { values } = parseArgs({
     out: { type: 'string', default: 'results' },
     host: { type: 'string' },
     port: { type: 'string' },
+    suite: { type: 'boolean', default: false },
+    tests: { type: 'string' },
+    profile: { type: 'string' },
+    config: { type: 'string' },
     help: { type: 'boolean', default: false },
   },
   strict: true,
@@ -50,10 +60,14 @@ const { values } = parseArgs({
 
 if (values.help) {
   console.log(`
-db-benchmarks — transactional benchmarks across Postgres, MySQL, MongoDB and CockroachDB
+db-benchmarks — benchmarks across ${ENGINE_NAMES.join(', ')}
 
   --db            comma list: ${ENGINE_NAMES.join(', ')}      (default: all)
-  --workload      comma list: like-tx, ${Object.values(ReadWorkload).join(', ')}
+  --out           output directory                            (default: results)
+  --host/--port   override the engine's default connection
+
+Transactional workloads (the original harness):
+  --workload      comma list: like-tx, ${Object.values(ReadWorkload).join(', ')}   (default: like-tx)
   --contention    comma list: uniform, hot                    (like-tx only)
   --concurrency   comma list of in-flight levels              (default: 1,8,32,64)
   --duration      measured seconds per cell                   (default: 10)
@@ -63,8 +77,15 @@ db-benchmarks — transactional benchmarks across Postgres, MySQL, MongoDB and C
   --posts-per-user                                            (default: 2)
   --limit         row limit for scan workloads                (default: 1000)
   --seed          dataset seed                                (default: 42)
-  --out           output directory                            (default: results)
-  --host/--port   override the engine's default connection
+
+Write/read benchmark suite (features.md, W1-W4 and R1-R10):
+  --suite         run the suite (skips like-tx unless --workload is also given)
+  --tests         comma list: ${ALL_TEST_IDS.join(', ')}, writes, reads, all   (default: all)
+  --profile       named profile from the config: smoke, standard, full
+  --config        config file                                 (default: bench.config.json)
+                  Every number in the suite (limits, concurrency, batch sizes,
+                  dataset size, ...) is set there. --concurrency, --duration,
+                  --warmup and --repeats override it when given.
 
 Each database has its own compose file, e.g.:
   cd databases/postgres && docker compose up -d
@@ -78,10 +99,12 @@ const num = (s: string | undefined, fallback: number): number => {
   return Number.isFinite(v) ? v : fallback;
 };
 
+const suiteMode = values.suite === true;
 const engines = list(values.db!);
-const workloads = list(values.workload!);
+const workloads = values.workload ? list(values.workload) : suiteMode ? [] : ['like-tx'];
+const legacyMode = workloads.length > 0;
 const contentions = list(values.contention!);
-const concurrencies = list(values.concurrency!).map((c) => num(c, 1));
+const concurrencies = list(values.concurrency ?? '1,8,32,64').map((c) => num(c, 1));
 const durationMs = num(values.duration, 10) * 1000;
 const warmupMs = num(values.warmup, 3) * 1000;
 const repeats = num(values.repeats, 3);
@@ -91,23 +114,67 @@ const scanLimit = num(values.limit, 1000);
 const seed = num(values.seed, 42);
 
 const runtime = detectRuntime();
-
 console.log(`runtime: ${runtime} ${hostInfo().runtimeVersion}`);
-console.log(`generating dataset: ${userCount} users x ${postsPerUser} posts (seed ${seed})`);
 
-const dataset = generate({ users: userCount, postsPerUser, seed });
-const totalPosts = dataset.posts.length;
-console.log(`dataset ready: ${dataset.users.length} users, ${totalPosts} posts\n`);
+// ------------------------------------------------------------------ suite --
+
+let suiteCfg: SuiteConfig | null = null;
+let suiteSelection: Set<string> | null = null;
+
+if (suiteMode) {
+  try {
+    suiteCfg = await loadConfig({ path: values.config, profile: values.profile });
+    suiteSelection = parseTests(values.tests);
+  } catch (err) {
+    console.error(message(err));
+    process.exit(1);
+  }
+  // Explicit flags win over the config file.
+  if (values.concurrency) suiteCfg.concurrency = concurrencies;
+  if (values.duration) suiteCfg.run.durationSec = num(values.duration, suiteCfg.run.durationSec);
+  if (values.warmup) suiteCfg.run.warmupSec = num(values.warmup, suiteCfg.run.warmupSec);
+  if (values.repeats) suiteCfg.run.repeats = num(values.repeats, suiteCfg.run.repeats);
+
+  console.log(
+    `suite: profile ${values.profile ?? 'default'}, ` +
+      `concurrency ${suiteCfg.concurrency.join(',')}, limits ${suiteCfg.limits.join(',')}, ` +
+      `dataset ${suiteCfg.dataset.users.toLocaleString('en-US')} users / ` +
+      `${suiteCfg.dataset.posts.toLocaleString('en-US')} posts / ` +
+      `${suiteCfg.dataset.likes.toLocaleString('en-US')} likes, ` +
+      `${suiteCfg.run.durationSec}s + ${suiteCfg.run.warmupSec}s warmup x ${suiteCfg.run.repeats}`,
+  );
+}
+
+// ----------------------------------------------------------------- legacy --
+
+let dataset: Dataset | null = null;
+let totalPosts = 0;
+if (legacyMode) {
+  console.log(`generating dataset: ${userCount} users x ${postsPerUser} posts (seed ${seed})`);
+  dataset = generate({ users: userCount, postsPerUser, seed });
+  totalPosts = dataset.posts.length;
+  console.log(`dataset ready: ${dataset.users.length} users, ${totalPosts} posts\n`);
+}
 
 const run: BenchmarkRun = {
   runId: newRunId(),
   startedAt: new Date().toISOString(),
   host: hostInfo(),
   config: {
-    engines, workloads, contentions, concurrencies,
+    engines,
+    workloads,
+    contentions,
+    concurrencies,
     durationSec: durationMs / 1000,
     warmupSec: warmupMs / 1000,
-    repeats, users: userCount, postsPerUser, totalPosts, seed, scanLimit,
+    repeats,
+    users: userCount,
+    postsPerUser,
+    totalPosts,
+    seed,
+    scanLimit,
+    // The fully-resolved suite config, so a suite run can be reproduced exactly.
+    ...(suiteCfg ? { suite: suiteCfg, suiteTests: suiteSelection ? [...suiteSelection] : 'all' } : {}),
   },
   engines: [],
 };
@@ -176,19 +243,56 @@ async function benchmarkEngine(adapter: Adapter): Promise<EngineResult> {
   const version = await adapter.serverVersion();
   console.log(`connected: ${version}`);
 
+  const result = legacyMode
+    ? await benchmarkLegacy(adapter, version)
+    : await emptyResult(adapter, version);
+
+  if (suiteMode) {
+    if (!adapter.suite) {
+      console.log(`  ${adapter.displayName}: no suite implementation, skipping the suite`);
+    } else {
+      console.log('  running the suite');
+      result.suite = await runSuite({
+        adapter,
+        cfg: suiteCfg!,
+        selection: suiteSelection,
+        log: (line) => console.log(line),
+      });
+    }
+  }
+  return result;
+}
+
+async function emptyResult(adapter: Adapter, version: string): Promise<EngineResult> {
+  return {
+    engine: adapter.engine,
+    displayName: adapter.displayName,
+    serverVersion: version,
+    transactionality: adapter.capabilities.transactionality,
+    memoryConfig: await adapter.memoryConfig().catch(() => ({})),
+    loadMs: { users: 0, posts: 0 },
+    cells: [],
+    integrity: null,
+    skippedWorkloads: [],
+  };
+}
+
+async function benchmarkLegacy(adapter: Adapter, version: string): Promise<EngineResult> {
+  const data = dataset!;
+
   await adapter.resetSchema();
 
   // Bulk load is timed separately from the measured workloads: it is a
   // throughput-of-ingest number, not a latency-under-concurrency number, and
   // conflating the two is what made the original results hard to interpret.
   const usersMs = await timed(async () => {
-    for (const batch of chunk(dataset.users, 1000)) await adapter.insertUsers(batch);
+    for (const batch of chunk(data.users, 1000)) await adapter.insertUsers(batch);
   });
   const postsMs = await timed(async () => {
-    for (const batch of chunk(dataset.posts, 1000)) await adapter.insertPosts(batch);
+    for (const batch of chunk(data.posts, 1000)) await adapter.insertPosts(batch);
   });
   console.log(
-    `loaded ${dataset.users.length} users in ${Math.round(usersMs)}ms, ` +
+    `loaded ${data.users.length} users in ${Math.round(usersMs)}ms, ` +
       `${totalPosts} posts in ${Math.round(postsMs)}ms`,
   );
 
@@ -216,14 +320,14 @@ async function benchmarkEngine(adapter: Adapter): Promise<EngineResult> {
               ? buildLikeOp({
                   adapter,
                   contention: mode === Contention.Hot ? Contention.Hot : Contention.Uniform,
-                  totalUsers: dataset.users.length,
+                  totalUsers: data.users.length,
                   totalPosts,
                   concurrency,
                 })
               : buildReadOp({
                   adapter,
                   workload: workload as ReadWorkload,
-                  users: dataset.users,
+                  users: data.users,
                   concurrency,
                   limit: scanLimit,
                 });

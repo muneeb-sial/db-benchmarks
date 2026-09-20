@@ -10,6 +10,9 @@ import {
   type User,
 } from '../../src/core/adapter.ts';
 import { errorCode, withRetry } from '../../src/core/retry.ts';
+import { DIALECTS } from '../../src/sql/dialect.ts';
+import { toRunOut } from '../../src/sql/queries.ts';
+import { createSqlSuite, type SqlExecutor } from '../../src/sql/suite.ts';
 
 /** 23505 unique_violation, 40001 serialization_failure, 40P01 deadlock_detected. */
 const UNIQUE_VIOLATION = '23505';
@@ -30,6 +33,8 @@ export interface PgFamilyOptions {
    * so it substitutes `select version()`.
    */
   versionQuery?: (sql: postgres.Sql) => Promise<string>;
+  /** Which SQL dialect the suite renders for. */
+  dialect?: 'postgres' | 'cockroachdb';
 }
 
 export function createAdapter(options: PgFamilyOptions = {}): Adapter {
@@ -45,6 +50,53 @@ export function createAdapter(options: PgFamilyOptions = {}): Adapter {
     return code !== undefined && RETRYABLE.has(code);
   };
 
+  // How the shared SQL suite talks to this driver. `unsafe` is the only way to
+  // run generated SQL with positional parameters in postgres.js.
+  const executor: SqlExecutor = {
+    async query(text, params) {
+      const rows = await db().unsafe(text, params as never[]);
+      return toRunOut(rows as unknown as ArrayLike<unknown>);
+    },
+    async execute(text) {
+      await db().unsafe(text);
+    },
+    async write(text, params) {
+      await db().unsafe(text, params as never[]);
+    },
+    async explain(text, params) {
+      const rows = await db().unsafe(`explain ${text}`, params as never[]);
+      return (rows as unknown as Array<Record<string, unknown>>)
+        .map((r) => String(Object.values(r)[0]))
+        .join('\n');
+    },
+    async bulkInsert(table, cols, rows) {
+      // Multi-row VALUES, capped well under the 65,535 parameter limit.
+      const perStatement = Math.max(1, Math.floor(30000 / cols.length));
+      const names = cols.map((c) => c.name).join(', ');
+      for (let i = 0; i < rows.length; i += perStatement) {
+        const slice = rows.slice(i, i + perStatement);
+        let n = 0;
+        const values = slice
+          .map(
+            () =>
+              '(' + cols.map((c) => `$${++n}${c.type === 'json' ? '::jsonb' : ''}`).join(', ') + ')',
+          )
+          .join(', ');
+        await db().unsafe(
+          `insert into ${table} (${names}) values ${values}`,
+          slice.flat() as never[],
+        );
+      }
+    },
+    isUniqueViolation: (err) => errorCode(err) === UNIQUE_VIOLATION,
+    async scalar(text) {
+      const rows = (await db().unsafe(text)) as unknown as Array<Record<string, unknown>>;
+      const first = rows[0];
+      const v = first ? Object.values(first)[0] : null;
+      return v === null || v === undefined ? null : Number(v);
+    },
+  };
+
   return {
     engine: options.engine ?? 'postgres',
     displayName: options.displayName ?? 'PostgreSQL',
@@ -56,6 +108,7 @@ export function createAdapter(options: PgFamilyOptions = {}): Adapter {
       unsupportedWorkloads: [],
     },
     isRetryable,
+    suite: createSqlSuite(DIALECTS[options.dialect ?? 'postgres'], executor),
 
     async connect(opts: ConnectOptions) {
       sql = postgres({

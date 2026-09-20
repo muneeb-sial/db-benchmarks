@@ -9,6 +9,7 @@ import {
   type TxOutcome,
   type User,
 } from '../../src/core/adapter.ts';
+import { createMongoSuite } from './suite.ts';
 
 const DUPLICATE_KEY = 11000;
 const WRITE_CONFLICT = 112;
@@ -60,6 +61,8 @@ export function createAdapter(): Adapter {
     },
 
     isRetryable: (err) => hasTransientLabel(err) || mongoCode(err) === WRITE_CONFLICT,
+
+    suite: createMongoSuite(database),
 
     async connect(opts: ConnectOptions) {
       const auth = opts.user ? `${opts.user}:${opts.password}@` : '';

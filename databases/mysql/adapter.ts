@@ -10,6 +10,9 @@ import {
   type User,
 } from '../../src/core/adapter.ts';
 import { withRetry } from '../../src/core/retry.ts';
+import { DIALECTS } from '../../src/sql/dialect.ts';
+import { toRunOut } from '../../src/sql/queries.ts';
+import { createSqlSuite, type SqlExecutor } from '../../src/sql/suite.ts';
 
 const ER_DUP_ENTRY = 1062;
 /**
@@ -42,6 +45,43 @@ export function createAdapter(): Adapter {
     return code !== undefined && RETRYABLE_ERRNO.has(code);
   };
 
+  // mysql2 binds JSON as text, so JSON columns are stringified on the way in.
+  const encode = (cols: { type: string }[], row: unknown[]): unknown[] =>
+    row.map((v, i) => (cols[i]?.type === 'json' ? JSON.stringify(v) : v));
+
+  const executor: SqlExecutor = {
+    async query(text, params) {
+      const [rows] = await db().query(text, params);
+      return Array.isArray(rows) ? toRunOut(rows) : { rows: 0, lastKey: null };
+    },
+    async execute(text) {
+      await db().query(text);
+    },
+    async write(text, params) {
+      await db().query(text, params);
+    },
+    async explain(text, params) {
+      const [rows] = await db().query(`explain ${text}`, params);
+      return JSON.stringify(rows);
+    },
+    async bulkInsert(table, cols, rows) {
+      const names = cols.map((c) => c.name).join(', ');
+      // Kept under max_allowed_packet (64MB by default) even for wide rows.
+      const perStatement = 10_000;
+      for (let i = 0; i < rows.length; i += perStatement) {
+        const slice = rows.slice(i, i + perStatement).map((r) => encode(cols, r));
+        await db().query(`insert into ${table} (${names}) values ?`, [slice]);
+      }
+    },
+    isUniqueViolation: (err) => errno(err) === ER_DUP_ENTRY,
+    async scalar(text) {
+      const [rows] = await db().query(text);
+      const first = Array.isArray(rows) ? (rows[0] as Record<string, unknown> | undefined) : undefined;
+      const v = first ? Object.values(first)[0] : null;
+      return v === null || v === undefined ? null : Number(v);
+    },
+  };
+
   return {
     engine: 'mysql',
     displayName: 'MySQL',
@@ -53,6 +93,7 @@ export function createAdapter(): Adapter {
       unsupportedWorkloads: [],
     },
     isRetryable,
+    suite: createSqlSuite(DIALECTS.mysql, executor),
 
     async connect(opts: ConnectOptions) {
       pool = mysql.createPool({

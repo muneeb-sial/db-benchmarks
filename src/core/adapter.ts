@@ -7,6 +7,8 @@
  *     runtimes x databases is not a full grid.
  */
 
+import type { SuiteAdapter } from '../suite/specs.ts';
+
 // Deliberately not a TS `enum`: enums are non-erasable and Node's type-stripping
 // rejects them outright. This `as const` pattern is the erasable equivalent.
 export const Runtime = {
@@ -90,6 +92,12 @@ export interface Adapter {
   readonly displayName: string;
   readonly supportedRuntimes: readonly Runtime[];
   readonly capabilities: Capabilities;
+
+  /**
+   * The write/read benchmark suite (features.md). Optional so an engine can be
+   * added for like-tx first and grow into the suite later.
+   */
+  readonly suite?: SuiteAdapter;
 
   connect(opts: ConnectOptions): Promise<void>;
   close(): Promise<void>;

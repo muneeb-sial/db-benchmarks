@@ -19,6 +19,7 @@ export function createAdapter(): Adapter {
     engine: 'cockroachdb',
     displayName: 'CockroachDB',
     supportedRuntimes: [Runtime.Node, Runtime.Bun],
+    dialect: 'cockroachdb',
     versionQuery: async (sql) => {
       const [row] = await sql<{ version: string }[]>`select version()`;
       // e.g. "CockroachDB CCL v24.2.3 (x86_64-pc-linux-gnu, built ...)".

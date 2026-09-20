@@ -10,6 +10,7 @@ import {
   type TxOutcome,
   type User,
 } from '../../src/core/adapter.ts';
+import { createCassandraSuite } from './suite.ts';
 
 /**
  * Cassandra runs the load and read workloads only.
@@ -55,6 +56,8 @@ export function createAdapter(): Adapter {
     new cassandra.Client({
       contactPoints: [`${opts.host}:${opts.port}`],
       localDataCenter: DATACENTER,
+      // Full-table counts and ALLOW FILTERING scans outlast the 12s default.
+      socketOptions: { readTimeout: 120_000 },
       ...(keyspace ? { keyspace } : {}),
       ...(opts.user ? { credentials: { username: opts.user, password: opts.password } } : {}),
     });
@@ -69,6 +72,7 @@ export function createAdapter(): Adapter {
       unsupportedWorkloads: ['like-tx', 'top-posts'],
     },
     isRetryable: () => false,
+    suite: createCassandraSuite(db),
 
     async connect(opts: ConnectOptions) {
       // Cassandra starts with no application keyspace. Create it over a
