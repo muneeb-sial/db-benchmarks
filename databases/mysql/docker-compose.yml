@@ -1,0 +1,59 @@
+name: bench-mysql
+
+services:
+  mysql:
+    image: mysql:8.4
+
+    # ------------------------------------------------------------------
+    # MEMORY BUDGET  (default: 4 GiB)
+    #
+    #   UP:    DB_MEM_LIMIT=8g MYSQL_BUFFER_POOL=2G docker compose up -d
+    #   DOWN:  DB_MEM_LIMIT=2g MYSQL_BUFFER_POOL=512M docker compose up -d
+    #
+    # ...or use a .env file beside this compose file:
+    #   DB_MEM_LIMIT=8g
+    #   MYSQL_BUFFER_POOL=2G
+    #
+    # Keep innodb_buffer_pool_size at roughly 25% of DB_MEM_LIMIT so that
+    # MySQL, Postgres and MongoDB all get the same working memory. They must
+    # move together.
+    # ------------------------------------------------------------------
+    mem_limit: ${DB_MEM_LIMIT:-4g}
+    memswap_limit: ${DB_MEM_LIMIT:-4g}
+    mem_swappiness: 0
+    cpus: ${DB_CPU_LIMIT:-4}
+
+    environment:
+      MYSQL_ROOT_PASSWORD: root
+      MYSQL_DATABASE: benchmark
+      MYSQL_USER: benchmark
+      MYSQL_PASSWORD: benchmark
+
+    command:
+      # innodb_buffer_pool_size defaults to a hardcoded 128MB and does NOT read
+      # the cgroup limit. innodb_dedicated_server=ON would be cgroup-aware, but
+      # it targets ~75% of detected memory, which would not match what we hand
+      # Postgres -- for a comparison, explicit beats automatic.
+      - --innodb-buffer-pool-size=${MYSQL_BUFFER_POOL:-1G}
+      - --innodb-log-file-size=${MYSQL_LOG_FILE_SIZE:-256M}
+      - --max-connections=${MYSQL_MAX_CONNECTIONS:-300}
+      # MySQL defaults to REPEATABLE READ, where the insert into `likes` takes
+      # gap/next-key locks and deadlocks readily against the counter update.
+      # Postgres defaults to READ COMMITTED, so pinning this makes the two
+      # engines actually comparable instead of measuring an isolation-level
+      # difference and calling it a performance difference.
+      - --transaction-isolation=READ-COMMITTED
+
+    ports:
+      - "3306:3306"
+
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "127.0.0.1", "-uroot", "-proot"]
+      interval: 3s
+      timeout: 5s
+      retries: 30
+      start_period: 20s
+
+    # No volume: data lives in the container layer so `docker compose down`
+    # resets cleanly. Never mount this as tmpfs -- tmpfs counts against
+    # mem_limit and would eat the buffer pool's budget.

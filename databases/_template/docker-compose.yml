@@ -1,0 +1,46 @@
+name: bench-ENGINE
+
+services:
+  engine:
+    image: your/image:tag
+
+    # ------------------------------------------------------------------
+    # MEMORY BUDGET  (default: 4 GiB)
+    #
+    #   UP:    DB_MEM_LIMIT=8g ENGINE_CACHE=2G docker compose up -d
+    #   DOWN:  DB_MEM_LIMIT=2g ENGINE_CACHE=512M docker compose up -d
+    #
+    # ...or use a .env file beside this compose file:
+    #   DB_MEM_LIMIT=8g
+    #   ENGINE_CACHE=2G
+    #
+    # Keep the cache at roughly 25% of DB_MEM_LIMIT, matching every other
+    # engine in this repo. They must move together or the comparison is void.
+    # ------------------------------------------------------------------
+    mem_limit: ${DB_MEM_LIMIT:-4g}
+    # Required. Without it Docker grants swap EQUAL to the memory limit, so the
+    # cap never actually binds.
+    memswap_limit: ${DB_MEM_LIMIT:-4g}
+    mem_swappiness: 0
+    cpus: ${DB_CPU_LIMIT:-4}
+
+    # REQUIRED: set the engine's cache explicitly. Most engines do NOT read the
+    # cgroup limit -- Postgres and MySQL both default to a hardcoded 128MB no
+    # matter how large the container is. Leaving this out is how you end up
+    # benchmarking cache size instead of the database.
+    command:
+      - --your-cache-flag=${ENGINE_CACHE:-1G}
+
+    ports:
+      - "0000:0000"
+
+    healthcheck:
+      test: ["CMD", "your-readiness-check"]
+      interval: 3s
+      timeout: 5s
+      retries: 30
+      start_period: 10s
+
+    # No volume: data lives in the container layer so `docker compose down`
+    # resets cleanly. Never mount the data directory as tmpfs -- tmpfs pages
+    # count against mem_limit and would compete with the cache budget above.

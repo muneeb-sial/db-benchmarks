@@ -1,0 +1,62 @@
+name: bench-mongodb
+
+services:
+  mongodb:
+    image: mongo:8.0
+
+    # ------------------------------------------------------------------
+    # MEMORY BUDGET  (default: 4 GiB)
+    #
+    #   UP:    DB_MEM_LIMIT=8g MONGO_CACHE_GB=2 docker compose up -d
+    #   DOWN:  DB_MEM_LIMIT=2g MONGO_CACHE_GB=0.5 docker compose up -d
+    #
+    # ...or use a .env file beside this compose file:
+    #   DB_MEM_LIMIT=8g
+    #   MONGO_CACHE_GB=2
+    #
+    # MONGO_CACHE_GB must stay at roughly 25% of DB_MEM_LIMIT to match what
+    # Postgres and MySQL are given. This is the single most important knob in
+    # the repo: left alone, WiredTiger sizes itself to
+    # max(50% of (RAM - 1GB), 256MB) -- about 1.5GB under a 4g cap -- while
+    # Postgres and MySQL sit at their hardcoded 128MB defaults. That is a 12x
+    # cache advantage that looks exactly like MongoDB being fast.
+    # ------------------------------------------------------------------
+    mem_limit: ${DB_MEM_LIMIT:-4g}
+    memswap_limit: ${DB_MEM_LIMIT:-4g}
+    mem_swappiness: 0
+    cpus: ${DB_CPU_LIMIT:-4}
+
+    # A single-node replica set, NOT a standalone mongod. Multi-document
+    # transactions require a replica set; a standalone silently has none, so
+    # the like workload would report throughput for work that never happened
+    # atomically. No auth and no keyfile: this is a local benchmark fixture,
+    # and enabling auth on a replica set drags in keyfile provisioning.
+    command:
+      - --replSet
+      - rs0
+      - --bind_ip_all
+      - --wiredTigerCacheSizeGB
+      - "${MONGO_CACHE_GB:-1}"
+
+    ports:
+      - "27017:27017"
+
+    # The healthcheck doubles as the replica-set initializer: it reports
+    # healthy once rs.status() succeeds, and runs rs.initiate() on the first
+    # pass when it does not. Members advertise `localhost` so the set is
+    # reachable from the host, which is where the benchmark runs.
+    healthcheck:
+      test: >
+        mongosh --quiet --port 27017 --eval "
+          try { rs.status().ok }
+          catch (e) {
+            rs.initiate({_id:'rs0',members:[{_id:0,host:'localhost:27017'}]}).ok
+          }"
+      interval: 5s
+      timeout: 30s
+      start_period: 0s
+      start_interval: 1s
+      retries: 30
+
+    # No volume, and never tmpfs: tmpfs pages count against mem_limit and
+    # would compete directly with the WiredTiger cache budget above.

@@ -1,0 +1,23 @@
+{
+  "name": "db-benchmarks",
+  "type": "module",
+  "engines": {
+    "node": ">=22.18.0"
+  },
+  "scripts": {
+    "bench": "node src/cli.ts",
+    "bench:bun": "bun src/cli.ts",
+    "render": "node scripts/render-results.ts",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@faker-js/faker": "^10.6.0",
+    "mongodb": "^6.21.0",
+    "mysql2": "^3.24.4",
+    "postgres": "^3.4.9"
+  },
+  "devDependencies": {
+    "@types/node": "^26.6.2",
+    "typescript": "~5.9.3"
+  }
+}
