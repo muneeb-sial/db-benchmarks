@@ -45,10 +45,13 @@ lists `like-tx`).
 
 ## Engines already here
 
-PostgreSQL, MySQL, MongoDB, CockroachDB, SQL Server and Cassandra. Cassandra
-skips `like-tx` because through 5.x it has no cross-partition transaction (Accord
-ships in Cassandra 6, still pre-GA), and reports the rest of what it cannot do as
-`N/A` with a reason.
+PostgreSQL, MySQL, MongoDB, CockroachDB, SQL Server, Cassandra and
+Elasticsearch. Cassandra skips `like-tx` because through 5.x it has no
+cross-partition transaction (Accord ships in Cassandra 6, still pre-GA), and
+reports the rest of what it cannot do as `N/A` with a reason. Elasticsearch
+skips `like-tx` for a stronger reason -- it has no multi-document transaction
+primitive at all -- but reports the rest as `N/A` the same way (mainly: no
+relational joins).
 
 ## Engines worth adding
 

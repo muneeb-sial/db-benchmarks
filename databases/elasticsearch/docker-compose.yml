@@ -1,0 +1,51 @@
+name: bench-elasticsearch
+
+services:
+  elasticsearch:
+    image: docker.elastic.co/elasticsearch/elasticsearch:8.15.3
+
+    # ------------------------------------------------------------------
+    # MEMORY BUDGET  (default: 4 GiB)
+    #
+    #   UP:    DB_MEM_LIMIT=8g ES_JAVA_OPTS="-Xms4g -Xmx4g" docker compose up -d --wait
+    #   DOWN:  DB_MEM_LIMIT=2g ES_JAVA_OPTS="-Xms1g -Xmx1g" docker compose up -d --wait
+    #
+    # ...or use a .env file beside this compose file:
+    #   DB_MEM_LIMIT=8g
+    #   ES_JAVA_OPTS=-Xms4g -Xmx4g
+    #
+    # Elasticsearch is a single JVM: unlike Cassandra (heap ~25% of the limit,
+    # because memtables/bloom filters/page cache also compete for RAM), ES's
+    # own docs recommend the heap at up to 50% of available memory, with the
+    # rest left for the OS page cache backing Lucene's segment files.
+    # REQUIRED that Xms == Xmx, or the JVM resizes the heap at runtime and the
+    # benchmark's memory footprint stops being reproducible.
+    # ------------------------------------------------------------------
+    mem_limit: ${DB_MEM_LIMIT:-4g}
+    memswap_limit: ${DB_MEM_LIMIT:-4g}
+    mem_swappiness: 0
+    cpus: ${DB_CPU_LIMIT:-4}
+
+    environment:
+      discovery.type: single-node
+      # Security is off, matching every other engine's no-auth local default
+      # (Cassandra, Mongo, CockroachDB all run open here too).
+      xpack.security.enabled: 'false'
+      xpack.security.enrollment.enabled: 'false'
+      ES_JAVA_OPTS: ${ES_JAVA_OPTS:--Xms2g -Xmx2g}
+      # Avoids requiring `mlockall`/unlimited ulimits from the host; the
+      # tradeoff is the heap can be swapped, but mem_swappiness: 0 above
+      # already keeps the container off swap entirely.
+      bootstrap.memory_lock: 'false'
+
+    ports:
+      - "9200:9200"
+
+    healthcheck:
+      test: ["CMD-SHELL", "curl -sf http://localhost:9200/_cluster/health || exit 1"]
+      interval: 10s
+      timeout: 10s
+      retries: 30
+      start_period: 60s
+
+    # No volume, and never tmpfs: tmpfs pages count against mem_limit.

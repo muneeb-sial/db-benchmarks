@@ -81,6 +81,21 @@ export const ENGINES: Record<string, EngineDescriptor> = {
     },
     load: async () => (await import('../../databases/cassandra/adapter.ts')).createAdapter(),
   },
+  elasticsearch: {
+    defaults: {
+      host: '127.0.0.1',
+      port: 9200,
+      // Security is disabled in the compose file for local benchmarking.
+      user: '',
+      password: '',
+      // Unused: Elasticsearch has no per-connection database, only index
+      // names (optionally prefixed). Kept for interface parity, same as
+      // Cassandra reusing this field for its keyspace.
+      database: 'benchmark',
+      poolSize: 64,
+    },
+    load: async () => (await import('../../databases/elasticsearch/adapter.ts')).createAdapter(),
+  },
 };
 
 export const ENGINE_NAMES = Object.keys(ENGINES);

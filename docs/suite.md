@@ -134,20 +134,20 @@ once, measures with it, and drops it before the next.
 Anything an engine cannot do honestly is recorded as `N/A` **with its reason**
 rather than faked or left blank.
 
-| | Postgres | CockroachDB | MySQL | SQL Server | MongoDB | Cassandra |
-| --- | --- | --- | --- | --- | --- | --- |
-| W1, W3 | yes | yes | yes | yes | yes | yes |
-| W2 (UK check) | unique index | unique index | unique index | unique index | unique index | `IF NOT EXISTS` (LWT) |
-| W4, R10 (JSON) | `jsonb` + GIN | `jsonb` + inverted | `JSON` + functional / multi-valued idx | N/A (2022 has no JSON type) | native | N/A |
-| Joins (R1-R8 shapes) | yes | yes | yes | yes | `$lookup` | N/A |
-| Offset paging | yes | yes | yes | yes | `skip` | N/A |
-| R2, R3, R6 | yes | yes | yes | yes | yes | limit mode only (SAI / `ALLOW FILTERING`) |
-| R4 | yes | yes | yes | yes | yes | limit + cursor, simple only |
-| R5 | yes | yes | yes | yes | yes | simple only |
-| R7 | all 7 | all 7 | all 7 | all 7 | all 7 | first 4 (no joins) |
-| R8 sort / top-N | yes | yes | yes | yes | yes | N/A (no ORDER BY on non-clustering column) |
-| R9 prefix / contains / suffix | yes | yes | yes | yes | regex | N/A |
-| R9 full-text | `tsvector` + GIN | N/A (not driven yet) | `FULLTEXT` | N/A (component not in image) | text index | N/A |
+| | Postgres | CockroachDB | MySQL | SQL Server | MongoDB | Cassandra | Elasticsearch |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| W1, W3 | yes | yes | yes | yes | yes | yes | yes |
+| W2 (UK check) | unique index | unique index | unique index | unique index | unique index | `IF NOT EXISTS` (LWT) | `_id = email`, `op_type: create` |
+| W4, R10 (JSON) | `jsonb` + GIN | `jsonb` + inverted | `JSON` + functional / multi-valued idx | N/A (2022 has no JSON type) | native | N/A | native, always indexed (no unindexed variant) |
+| Joins (R1-R8 shapes) | yes | yes | yes | yes | `$lookup` | N/A | N/A (no joins) |
+| Offset paging | yes | yes | yes | yes | `skip` | N/A | yes (`max_result_window` raised) |
+| R2, R3, R6 | yes | yes | yes | yes | yes | limit mode only (SAI / `ALLOW FILTERING`) | yes, but every field is indexed so R3 has no unindexed-scan contrast |
+| R4 | yes | yes | yes | yes | yes | limit + cursor, simple only | limit, offset and cursor, simple only |
+| R5 | yes | yes | yes | yes | yes | simple only | simple only |
+| R7 | all 7 | all 7 | all 7 | all 7 | all 7 | first 4 (no joins) | all 7 (`posts-per-user`/`likes-per-post`/`likes-per-user` are `terms` aggs, no join needed) |
+| R8 sort / top-N | yes | yes | yes | yes | yes | N/A (no ORDER BY on non-clustering column) | yes |
+| R9 prefix / contains / suffix | yes | yes | yes | yes | regex | N/A | `wildcard` query, always indexed (no unindexed variant) |
+| R9 full-text | `tsvector` + GIN | N/A (not driven yet) | `FULLTEXT` | N/A (component not in image) | text index | N/A | `match` query, always indexed (no unindexed variant) |
 
 ## What is recorded
 

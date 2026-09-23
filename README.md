@@ -1,8 +1,9 @@
 # db-benchmarks
 
 Benchmarks for **PostgreSQL**, **MySQL**, **MongoDB**, **CockroachDB**,
-**SQL Server** and **Cassandra**, written once in TypeScript and runnable
-unmodified on **Node** and **Bun**. Deno is not supported.
+**SQL Server**, **Cassandra** and **Elasticsearch**, written once in
+TypeScript and runnable unmodified on **Node** and **Bun**. Deno is not
+supported.
 
 Two things run here:
 
@@ -206,6 +207,27 @@ does not make the comparison structurally unfair against the engines that use
 row versioning. SQL Server refuses to start below about 2 GB, so its cache is
 50% of the container limit rather than 25%; the difference is recorded in every
 result file.
+
+## Elasticsearch: what it does and doesn't run
+
+Elasticsearch has no multi-document transaction primitive at all — not even
+Cassandra's weaker "atomic but not isolated" logged `BATCH`. A single document
+write is atomic; the like and the post's counter, as two documents, never are
+together. So **`like-tx` is skipped for it**, with the reason recorded in the
+results; its `transactionality` is `none`, so its numbers can never be
+silently compared against an ACID engine's. `top-posts`, unlike on Cassandra,
+**is** supported: sorting by a numeric field the index already has is exactly
+what Elasticsearch is fast at.
+
+In the suite it runs everything except relational joins (`single-join`,
+`multi-join` shapes), which have no equivalent in a document store and are
+reported `N/A`. Text search and JSON documents — Elasticsearch's actual
+strengths — run fully, including the aggregations that need a foreign key
+but not a join (`posts`/`likes` already carry their parent id directly).
+Being a single JVM, its heap is set to ~50% of the container memory limit
+via `ES_JAVA_OPTS`, not the ~25% most other engines get, matching
+Elasticsearch's own sizing guidance; the value is recorded in every result
+file.
 
 ## Latest results
 

@@ -31,9 +31,9 @@ node src/cli.ts --suite --profile smoke --db postgres
 docker compose -f databases/postgres/docker-compose.yml down -v
 ```
 
-Databases: `postgres`, `mysql`, `mongodb`, `cockroachdb`, `mssql`, `cassandra`.
-Run **one at a time**; each container is capped at 4 GiB. Only Postgres has been
-verified against the suite so far.
+Databases: `postgres`, `mysql`, `mongodb`, `cockroachdb`, `mssql`, `cassandra`,
+`elasticsearch`. Run **one at a time**; each container is capped at 4 GiB. Only
+Postgres has been verified against the suite so far.
 
 ## Two things you can run
 
@@ -144,7 +144,7 @@ bun src/cli.ts --suite --profile smoke --db postgres
 **bash / Git Bash:**
 
 ```bash
-for db in postgres mysql mongodb cockroachdb mssql cassandra; do
+for db in postgres mysql mongodb cockroachdb mssql cassandra elasticsearch; do
   docker compose -f databases/$db/docker-compose.yml up -d --wait
   node src/cli.ts --suite --profile smoke --db $db
   docker compose -f databases/$db/docker-compose.yml down -v
@@ -154,7 +154,7 @@ done
 **PowerShell:**
 
 ```powershell
-foreach ($db in "postgres","mysql","mongodb","cockroachdb","mssql","cassandra") {
+foreach ($db in "postgres","mysql","mongodb","cockroachdb","mssql","cassandra","elasticsearch") {
   docker compose -f "databases/$db/docker-compose.yml" up -d --wait
   node src/cli.ts --suite --profile smoke --db $db
   docker compose -f "databases/$db/docker-compose.yml" down -v
@@ -373,6 +373,10 @@ DB_MEM_LIMIT=8g MSSQL_MEMORY_MB=4096 docker compose up -d --wait
 # Cassandra: 8 GiB (set the JVM heap explicitly; it sizes itself from HOST RAM)
 cd databases/cassandra
 DB_MEM_LIMIT=8g CASSANDRA_HEAP=2G CASSANDRA_HEAP_NEW=512M docker compose up -d --wait
+
+# Elasticsearch: 8 GiB (single JVM, so the heap is ~50% of the limit, Xms == Xmx)
+cd databases/elasticsearch
+DB_MEM_LIMIT=8g ES_JAVA_OPTS="-Xms4g -Xmx4g" docker compose up -d --wait
 ```
 
 Change it back the same way (for example `DB_MEM_LIMIT=2g ...`), or put the values
@@ -387,7 +391,7 @@ docker inspect -f '{{.HostConfig.Memory}}' bench-postgres-postgres-1
 ## Stop everything
 
 ```bash
-for db in postgres mysql mongodb cockroachdb mssql cassandra; do
+for db in postgres mysql mongodb cockroachdb mssql cassandra elasticsearch; do
   docker compose -f databases/$db/docker-compose.yml down -v
 done
 ```
@@ -400,7 +404,7 @@ done
 
 | Flag | Default | Meaning |
 | --- | --- | --- |
-| `--db` | all six | comma list: `postgres,mysql,mongodb,cockroachdb,mssql,cassandra` |
+| `--db` | all seven | comma list: `postgres,mysql,mongodb,cockroachdb,mssql,cassandra,elasticsearch` |
 | `--out` | `results` | output directory |
 | `--host` / `--port` | per engine | override the connection |
 | **Suite** | | |
@@ -448,7 +452,7 @@ size and seed come from the config.
 - **Connection refused**: the container isn't healthy yet. Use `up -d --wait`, or
   check `docker compose -f databases/<db>/docker-compose.yml ps`. Cassandra takes
   over a minute to become healthy, SQL Server about 30 seconds.
-- **Port already in use**: something else is on 5432, 3306, 27017, 26257, 1433 or
-  9042. Stop it, or override with `--port`.
+- **Port already in use**: something else is on 5432, 3306, 27017, 26257, 1433,
+  9042 or 9200. Stop it, or override with `--port`.
 - **Out of memory, or the run is very slow**: lower `concurrency`, `limits` or
   `dataset` sizes, or raise the container memory limit.
