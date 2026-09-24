@@ -1,8 +1,8 @@
 # How to run
 
 Copy-paste recipes. Every command runs from the repo root. For what the numbers
-mean, see the [README](README.md); for every test in the suite, see
-[docs/suite.md](docs/suite.md).
+mean, see the [README](../README.md) and [methodology.md](methodology.md); for every test in the suite, see
+[suite.md](suite.md).
 
 - [Setup](#setup)
 - [Two things you can run](#two-things-you-can-run)
@@ -39,7 +39,7 @@ Postgres has been verified against the suite so far.
 
 | | What it is | Turn it on with |
 | --- | --- | --- |
-| **The suite** | Writes W1-W4 and reads R1-R10 across query shapes, read modes, limits and concurrency levels. Configured in [bench.config.json](bench.config.json). | `--suite` |
+| **The suite** | Writes W1-W4 and reads R1-R10 across query shapes, read modes, limits and concurrency levels. Configured in [bench.config.json](../bench.config.json). | `--suite` |
 | **The like workload** | The original transactional benchmark: insert a like and bump a counter atomically, with a correctness check. | `--workload like-tx` (the default when `--suite` is absent) |
 
 They are independent. `--suite` alone skips like-tx; add `--workload like-tx` to
@@ -230,7 +230,7 @@ node src/cli.ts --suite --db postgres --tests r9,r10          # text search and 
 
 ## Editing the config
 
-Every number in the suite is in [bench.config.json](bench.config.json). No code
+Every number in the suite is in [bench.config.json](../bench.config.json). No code
 changes are needed.
 
 **How it is layered**, later beats earlier:

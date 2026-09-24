@@ -1,6 +1,6 @@
 # Benchmark suite
 
-The write and read suite specified in [features.md](../features.md): tests W1-W4
+The write and read suite specified in [features.md](features.md): tests W1-W4
 and R1-R10, three query shapes, three read modes, six limits, five concurrency
 levels. It runs beside the transactional `like-tx` workload and never touches
 its tables.
