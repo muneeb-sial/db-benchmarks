@@ -26,17 +26,6 @@ docker exec bench-postgres-postgres-1 \
   psql -U postgres -d benchmark -c 'show shared_buffers'
 ```
 
-## Contention behaviour
-
-At Postgres' default `READ COMMITTED`, the counter update serializes on the row
-lock and re-evaluates (EvalPlanQual), so **no client retry is needed** — retry
-counts here are normally zero, unlike CockroachDB. `40P01` (deadlock) only
-appears if lock order varies, which is why every adapter in this repo updates
-`posts` before inserting into `likes`.
-
-Expect throughput to hold up under hot contention while p99 latency climbs:
-requests queue on the lock rather than aborting.
-
 ## Notes
 
 - `COUNT(*)` returns `bigint`, which postgres.js surfaces as a **string**. The

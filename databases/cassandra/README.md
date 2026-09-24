@@ -3,26 +3,11 @@
 ```bash
 docker compose up -d --wait        # takes a minute or more to become healthy
 node ../../src/cli.ts --db cassandra
-node ../../src/cli.ts --suite --db cassandra --profile smoke
+node ../../src/cli.ts --db cassandra --profile smoke
 ```
 
 Driver: `cassandra-driver` (DataStax), pure JS. Image: `cassandra:5.0`. Port
 **9042**, no authentication. The keyspace `benchmark` is created on connect.
-
-## It does not run the like transaction
-
-`like-tx` and `top-posts` are **skipped**, with the reason recorded in the
-results, rather than benchmarked as a weaker operation that looks comparable.
-Through 5.x Cassandra cannot make "insert a like and bump a counter" atomic:
-
-- a logged `BATCH` is atomic but not isolated, and cannot mix counter and
-  non-counter statements;
-- `LWT` (`IF NOT EXISTS`) is linearizable but single-partition only;
-- counter columns are non-idempotent, so a retry after a timeout double-counts.
-
-Accord, the real cross-partition transaction, ships in Cassandra 6 (pre-GA), and
-needs the Cluster Metadata Service initialized first. Its `transactionality` is
-`none`, so its numbers can never be silently compared with an ACID engine's.
 
 ## What the suite runs
 

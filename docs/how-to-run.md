@@ -5,7 +5,6 @@ mean, see the [README](../README.md) and [methodology.md](methodology.md); for e
 [suite.md](suite.md).
 
 - [Setup](#setup)
-- [Two things you can run](#two-things-you-can-run)
 - [Common scenarios](#common-scenarios)
 - [Running all the read tests](#running-all-the-read-tests)
 - [Editing the config](#editing-the-config)
@@ -27,23 +26,13 @@ Each database has its own compose file. Start one, run against it, stop it:
 
 ```bash
 docker compose -f databases/postgres/docker-compose.yml up -d --wait
-node src/cli.ts --suite --profile smoke --db postgres
+node src/cli.ts --profile smoke --db postgres
 docker compose -f databases/postgres/docker-compose.yml down -v
 ```
 
 Databases: `postgres`, `mysql`, `mongodb`, `cockroachdb`, `mssql`, `cassandra`,
 `elasticsearch`. Run **one at a time**; each container is capped at 4 GiB. Only
 Postgres has been verified against the suite so far.
-
-## Two things you can run
-
-| | What it is | Turn it on with |
-| --- | --- | --- |
-| **The suite** | Writes W1-W4 and reads R1-R10 across query shapes, read modes, limits and concurrency levels. Configured in [bench.config.json](../bench.config.json). | `--suite` |
-| **The like workload** | The original transactional benchmark: insert a like and bump a counter atomically, with a correctness check. | `--workload like-tx` (the default when `--suite` is absent) |
-
-They are independent. `--suite` alone skips like-tx; add `--workload like-tx` to
-run both.
 
 ## Common scenarios
 
@@ -53,7 +42,7 @@ are for one engine.
 ### Check that everything works (about 5 minutes)
 
 ```bash
-node src/cli.ts --suite --profile smoke --db postgres
+node src/cli.ts --profile smoke --db postgres
 ```
 
 Small dataset, concurrency 1 and 8, limits 100 and 1k, one second per cell. Every
@@ -62,7 +51,7 @@ test runs, just smaller. Expect `suite: N ok` at the end and no errors.
 ### Run only the writes (a few minutes)
 
 ```bash
-node src/cli.ts --suite --db postgres --tests writes
+node src/cli.ts --db postgres --tests writes
 ```
 
 W1-W4: single inserts, inserts with the unique-key check, batch inserts, JSON
@@ -75,7 +64,7 @@ See [the next section](#running-all-the-read-tests).
 ### See offset vs cursor pagination
 
 ```bash
-node src/cli.ts --suite --db postgres --tests r4
+node src/cli.ts --db postgres --tests r4
 ```
 
 R4 walks the whole table page by page. Open `results/<run>/charts/r4-postgres-simple.svg`
@@ -84,7 +73,7 @@ in a browser: offset latency climbs with page depth, cursor stays flat.
 ### Does an index help? (indexed vs not)
 
 ```bash
-node src/cli.ts --suite --db postgres --tests r9,r10
+node src/cli.ts --db postgres --tests r9,r10
 ```
 
 R9 (text search) and R10 (JSON) each run without an index first, then build one
@@ -94,11 +83,11 @@ and run again. The results record index build time and size.
 
 ```bash
 docker compose -f databases/postgres/docker-compose.yml up -d --wait
-node src/cli.ts --suite --profile smoke --db postgres --tests r1,r5,w1
+node src/cli.ts --profile smoke --db postgres --tests r1,r5,w1
 docker compose -f databases/postgres/docker-compose.yml down -v
 
 docker compose -f databases/mysql/docker-compose.yml up -d --wait
-node src/cli.ts --suite --profile smoke --db mysql --tests r1,r5,w1
+node src/cli.ts --profile smoke --db mysql --tests r1,r5,w1
 docker compose -f databases/mysql/docker-compose.yml down -v
 ```
 
@@ -107,36 +96,22 @@ Each run writes its own `results/<run>/`, with its own `summary.md`. To get **on
 containers are then all up at once:
 
 ```bash
-node src/cli.ts --suite --profile smoke --db postgres,mysql --tests r1,r5,w1
+node src/cli.ts --profile smoke --db postgres,mysql --tests r1,r5,w1
 ```
 
 ### The most careful run (slow)
 
 ```bash
-node src/cli.ts --suite --profile full --db postgres
+node src/cli.ts --profile full --db postgres
 ```
 
 10 seconds measured plus 3 warmup per cell, 3 repeats with the median reported,
 and R4 uncapped. This is many hours; narrow it with `--tests`.
 
-### The like workload
-
-```bash
-# quick
-node src/cli.ts --db postgres --workload like-tx --contention uniform --concurrency 8 --duration 3 --warmup 1 --repeats 1 --users 1000
-
-# full defaults (about 5 minutes): uniform + hot contention, concurrency 1,8,32,64
-node src/cli.ts --db postgres --workload like-tx
-```
-
-Expect `integrity: OK` at the end. The original small read workloads
-(`point-lookup`, `age-range`, `list-posts`, `top-posts`) are separate:
-`--workload point-lookup,age-range,list-posts,top-posts`.
-
 ### On Bun instead of Node
 
 ```bash
-bun src/cli.ts --suite --profile smoke --db postgres
+bun src/cli.ts --profile smoke --db postgres
 ```
 
 ### Run several engines one after another
@@ -146,7 +121,7 @@ bun src/cli.ts --suite --profile smoke --db postgres
 ```bash
 for db in postgres mysql mongodb cockroachdb mssql cassandra elasticsearch; do
   docker compose -f databases/$db/docker-compose.yml up -d --wait
-  node src/cli.ts --suite --profile smoke --db $db
+  node src/cli.ts --profile smoke --db $db
   docker compose -f databases/$db/docker-compose.yml down -v
 done
 ```
@@ -156,7 +131,7 @@ done
 ```powershell
 foreach ($db in "postgres","mysql","mongodb","cockroachdb","mssql","cassandra","elasticsearch") {
   docker compose -f "databases/$db/docker-compose.yml" up -d --wait
-  node src/cli.ts --suite --profile smoke --db $db
+  node src/cli.ts --profile smoke --db $db
   docker compose -f "databases/$db/docker-compose.yml" down -v
 }
 ```
@@ -173,7 +148,7 @@ saved in `result.json` under `config.suite`; copy it to a file and pass it with
 `--tests reads` runs R1 through R10 and skips the writes:
 
 ```bash
-node src/cli.ts --suite --db postgres --tests reads
+node src/cli.ts --db postgres --tests reads
 ```
 
 That is the whole read matrix: **391 cells x 5 concurrency levels = 1,955 runs**.
@@ -222,10 +197,10 @@ has no JSON type). That is not a failure; the reason is recorded next to each.
 ### Slices of the read tests
 
 ```bash
-node src/cli.ts --suite --db postgres --tests r1,r2,r3,r4     # core matrix
-node src/cli.ts --suite --db postgres --tests r5,r6           # lookups and ranges
-node src/cli.ts --suite --db postgres --tests r7,r8           # aggregations and sorting
-node src/cli.ts --suite --db postgres --tests r9,r10          # text search and JSON
+node src/cli.ts --db postgres --tests r1,r2,r3,r4     # core matrix
+node src/cli.ts --db postgres --tests r5,r6           # lookups and ranges
+node src/cli.ts --db postgres --tests r7,r8           # aggregations and sorting
+node src/cli.ts --db postgres --tests r9,r10          # text search and JSON
 ```
 
 ## Editing the config
@@ -261,7 +236,7 @@ change the value, run.
 Save it as, say, `my.config.json`, and run:
 
 ```bash
-node src/cli.ts --suite --db postgres --tests reads --config my.config.json
+node src/cli.ts --db postgres --tests reads --config my.config.json
 ```
 
 Check that it took effect: the CLI prints a `suite:` line at the start with the
@@ -314,7 +289,7 @@ Add one under `profiles` in `bench.config.json`:
 ```
 
 ```bash
-node src/cli.ts --suite --profile reads-quick --db postgres --tests reads
+node src/cli.ts --profile reads-quick --db postgres --tests reads
 ```
 
 ## Reading the results
@@ -328,7 +303,7 @@ Each run creates `results/<timestamp>/`:
 | `explain/<engine>.md` | The query plan for every distinct query, with a best-effort "index used" flag. |
 | `charts/r4-<engine>-<shape>.svg` | R4 per-page latency, offset vs cursor. Open in a browser. |
 | `result.json` | All the raw numbers plus the resolved config. |
-| `result.md` | The original like-workload report. |
+| `result.md` | Host, resolved config and memory settings for the run. |
 
 Each cell shows ops/sec, p95 latency and the rows returned per query. Check that
 rows match the limit you intended.
@@ -407,33 +382,20 @@ done
 | `--db` | all seven | comma list: `postgres,mysql,mongodb,cockroachdb,mssql,cassandra,elasticsearch` |
 | `--out` | `results` | output directory |
 | `--host` / `--port` | per engine | override the connection |
-| **Suite** | | |
-| `--suite` | off | run the write/read suite |
 | `--tests` | `all` | `w1..w4`, `r1..r10`, `writes`, `reads`, `all` |
 | `--profile` | none | `smoke`, `standard`, `full`, or your own |
 | `--config` | `bench.config.json` | config file |
-| **Both** | | |
-| `--concurrency` | suite: config; like-tx: `1,8,32,64` | in-flight operations per cell. Overrides the config. |
-| `--duration` | suite: config; like-tx: `10` | measured seconds per cell |
-| `--warmup` | suite: config; like-tx: `3` | discarded seconds per cell |
-| `--repeats` | suite: config; like-tx: `3` | repetitions per cell; the median is reported |
-| **Like workload only** | | |
-| `--workload` | `like-tx` | `like-tx`, `point-lookup`, `age-range`, `list-posts`, `top-posts` |
-| `--contention` | `uniform,hot` | `like-tx` only |
-| `--users` | `20000` | users to generate |
-| `--posts-per-user` | `2` | posts per user |
-| `--seed` | `42` | dataset seed |
-
-`--users`, `--posts-per-user` and `--seed` do not affect the suite; its dataset
-size and seed come from the config.
+| `--concurrency` | config | in-flight operations per cell. Overrides the config. |
+| `--duration` | config | measured seconds per cell |
+| `--warmup` | config | discarded seconds per cell |
+| `--repeats` | config | repetitions per cell; the median is reported |
 
 ## Troubleshooting
 
 | Exit code | Meaning |
 | --- | --- |
-| `0` | Finished; every integrity check passed |
+| `0` | Finished |
 | `1` | Bad argument or config, unsupported runtime (Deno), or a startup failure |
-| `2` | **Integrity failure** in the like workload: a stored `like_count` disagreed with the actual likes, so those numbers are not valid |
 
 - **A config error, such as `dataset.documents must be at least the sum of the
   limits`**: the message names the key and the rule. See

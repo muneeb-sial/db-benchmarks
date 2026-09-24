@@ -14,18 +14,9 @@ Runs on **port 26257**, not 5432, so it can run alongside Postgres.
 
 ## What actually differs from Postgres
 
-**Isolation.** CockroachDB defaults to `SERIALIZABLE` and *aborts* conflicting
-transactions with `SQLSTATE 40001` rather than blocking on a row lock, the way
-Postgres does at `READ COMMITTED`. Under the hot-contention workload that is
-the expected path, not an edge case.
-
-**Retries are mandatory and are not automatic.** `sql.begin()` does not retry,
-and CockroachDB only performs server-side retries for implicit single-statement
-transactions — an explicit `BEGIN … COMMIT` is the client's problem. The shared
-`withRetry` wrapper handles it with bounded exponential backoff and full
-jitter; without jitter, contending workers back off in lockstep and re-collide.
-
-**The retry count is the interesting number here**, more than raw throughput.
+CockroachDB defaults to `SERIALIZABLE` and *aborts* conflicting transactions
+with `SQLSTATE 40001` rather than blocking on a row lock, the way Postgres does
+at `READ COMMITTED`.
 
 ## Memory
 

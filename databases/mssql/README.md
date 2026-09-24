@@ -3,7 +3,7 @@
 ```bash
 docker compose up -d --wait
 node ../../src/cli.ts --db mssql
-node ../../src/cli.ts --suite --db mssql --profile smoke
+node ../../src/cli.ts --db mssql --profile smoke
 ```
 
 Driver: `mssql` (which wraps `tedious`), pure JS. Image: `mssql/server:2022-latest`,
@@ -11,7 +11,7 @@ Developer edition. Port **1433**, user `sa`.
 
 ## What it does and doesn't run
 
-Everything in the like-tx workload and the suite, **except**:
+Everything in the suite, **except**:
 
 - **JSON (W4, R10)**: SQL Server 2022 has no native JSON type. Marked `N/A`.
 - **Full-text (R9)**: the image ships without the full-text component. Marked `N/A`.
@@ -26,7 +26,6 @@ Everything in the like-tx workload and the suite, **except**:
   `max server memory` bounds nearly all its caches, so it cannot be squeezed to
   the 25% the other engines get. It defaults to 2048 MB under the 4 GiB cap. The
   value is recorded in every result file.
-- **Deadlocks (error 1205) are retried** and counted, like MySQL's 1213.
 
 ## Notes
 
