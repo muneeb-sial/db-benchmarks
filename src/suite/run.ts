@@ -3,30 +3,18 @@
  * concurrency level, capturing EXPLAIN and index build costs on the way.
  */
 
-import type { Adapter } from '../core/adapter.ts';
 import { median, summarize } from '../core/stats.ts';
-import type { SuiteConfig } from './config.ts';
-import { docRow, likeRow, makePlan, postRow, userRow, type DataPlan } from './data.ts';
-import {
-  queryKey,
-  type CellStatus,
-  type IndexBuild,
-  type SuiteCellResult,
-  type SuiteEngineResult,
-  type TraversalResult,
-} from './results.ts';
-import { runFixed, runTimed, runTraversal, type Measure } from './runner.ts';
-import type { SuiteRow, SuiteTable } from './schema.ts';
-import type { ExplainOut, IndexKind } from './specs.ts';
-import { buildCells, type TestCell } from './tests.ts';
-
-export interface SuiteRunOptions {
-  adapter: Adapter;
-  cfg: SuiteConfig;
-  /** Test ids to run; null means all. */
-  selection: Set<string> | null;
-  log: (line: string) => void;
-}
+import { docRow, likeRow, makePlan, postRow, userRow } from './data.ts';
+import { queryKey } from './results.ts';
+import { runFixed, runTimed, runTraversal } from './runner.ts';
+import { buildCells } from './tests.ts';
+import type { DataPlan } from '../types/data.type.ts';
+import type { CellStatus, IndexBuild, SuiteCellResult, SuiteEngineResult, TraversalResult } from '../types/results.type.ts';
+import type { Measure } from '../types/runner.type.ts';
+import type { SuiteRow, SuiteTable } from '../types/schema.type.ts';
+import type { ExplainOut, IndexKind } from '../types/specs.type.ts';
+import type { TestCell } from '../types/tests.type.ts';
+import type { SuiteRunOptions } from '../types/run.type.ts';
 
 const message = (err: unknown): string => (err instanceof Error ? err.message : String(err));
 

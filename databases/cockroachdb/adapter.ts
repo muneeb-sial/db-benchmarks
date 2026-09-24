@@ -1,7 +1,8 @@
 import process from 'node:process';
 import postgres from 'postgres';
-import { Runtime, type Adapter, type ConnectOptions } from '../../src/core/adapter.ts';
+import { Runtime } from '../../src/core/adapter.ts';
 import { createAdapter as createPgFamilyAdapter } from '../postgres/adapter.ts';
+import type { Adapter, ConnectOptions } from '../../src/types/adapter.type.ts';
 
 /**
  * CockroachDB reuses the Postgres adapter wholesale: it speaks the Postgres

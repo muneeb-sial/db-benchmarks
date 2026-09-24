@@ -3,6 +3,7 @@
 ```
 src/core/       adapter contract, engine registry, stats, reporting
 src/suite/      the write/read suite: config, data, test matrix, runner, reports
+src/types/      every interface and type alias, one <module>.type.ts per module
 src/sql/        SQL dialects and the query builder shared by the SQL engines
 databases/      one folder per engine: adapter.ts + docker-compose.yml (+ suite.ts for non-SQL engines)
 databases/_template/   how to add an engine

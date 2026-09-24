@@ -1,15 +1,4 @@
-/** Latency summary statistics. Percentiles use the nearest-rank method. */
-
-export interface Summary {
-  count: number;
-  min: number;
-  mean: number;
-  p50: number;
-  p95: number;
-  p99: number;
-  max: number;
-  stddev: number;
-}
+import type { Summary } from '../types/stats.type.ts';
 
 /** Sorts `samples` in place. Caller must not rely on the original order. */
 export function summarize(samples: Float64Array, count: number): Summary {

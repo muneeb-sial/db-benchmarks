@@ -9,17 +9,12 @@ import process from 'node:process';
 import { parseArgs } from 'node:util';
 import { ENGINES, ENGINE_NAMES } from './core/registry.ts';
 import { assertSupportedRuntime, detectRuntime, hostInfo } from './core/runtime.ts';
-import {
-  newRunId,
-  renderConsole,
-  writeResults,
-  type BenchmarkRun,
-  type EngineResult,
-} from './core/reporter.ts';
+import { newRunId, renderConsole, writeResults } from './core/reporter.ts';
 import { loadConfig } from './suite/config.ts';
 import { runSuite } from './suite/run.ts';
 import { ALL_TEST_IDS, parseTests } from './suite/tests.ts';
-import type { Adapter } from './core/adapter.ts';
+import type { BenchmarkRun, EngineResult } from './types/reporter.type.ts';
+import type { Adapter } from './types/adapter.type.ts';
 
 assertSupportedRuntime();
 

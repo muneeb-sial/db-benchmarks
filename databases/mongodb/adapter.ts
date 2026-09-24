@@ -1,6 +1,7 @@
 import { MongoClient, type Db } from 'mongodb';
-import { Runtime, type Adapter, type ConnectOptions } from '../../src/core/adapter.ts';
+import { Runtime } from '../../src/core/adapter.ts';
 import { createMongoSuite } from './suite.ts';
+import type { Adapter, ConnectOptions } from '../../src/types/adapter.type.ts';
 
 export function createAdapter(): Adapter {
   let client: MongoClient | null = null;

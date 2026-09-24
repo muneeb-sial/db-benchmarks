@@ -10,24 +10,12 @@
  * that is the only key unique per returned row: u.id, p.id, l.id.
  */
 
-import type { Dialect } from './dialect.ts';
-import type { DocShape, Shape } from '../suite/config.ts';
+import type { Shape } from '../types/config.type.ts';
 import { fullTextTerm, jsonMarker, likeTerm, nest, nestedPath } from '../suite/data.ts';
-import type {
-  AggSpec,
-  IndexKind,
-  JsonSpec,
-  ReadSpec,
-  RunOut,
-  TextSpec,
-} from '../suite/specs.ts';
-
-export interface Names {
-  users: string;
-  posts: string;
-  likes: string;
-  documents: string;
-}
+import type { Dialect } from '../types/dialect.type.ts';
+import type { DocShape } from '../types/config.type.ts';
+import type { AggSpec, IndexKind, JsonSpec, ReadSpec, RunOut, TextSpec } from '../types/specs.type.ts';
+import type { Built, IndexDdl, Names } from '../types/queries.type.ts';
 
 export const tableNames = (prefix: string): Names => ({
   users: `${prefix}users`,
@@ -35,11 +23,6 @@ export const tableNames = (prefix: string): Names => ({
   likes: `${prefix}likes`,
   documents: `${prefix}documents`,
 });
-
-export interface Built {
-  sql: string;
-  params: unknown[];
-}
 
 const KEY: Record<Shape, string> = {
   simple: 'u.id',
@@ -217,12 +200,6 @@ export function buildJson(d: Dialect, t: Names, spec: JsonSpec, shape: DocShape)
     sql: `select id, id as k_ from ${t.documents} where ${cond} order by id${d.pageClause(spec.limit, 0)}`,
     params,
   };
-}
-
-export interface IndexDdl {
-  name: string;
-  create: string;
-  drop: string;
 }
 
 export function indexDdl(d: Dialect, t: Names, prefix: string, kind: IndexKind, shape: DocShape): IndexDdl {

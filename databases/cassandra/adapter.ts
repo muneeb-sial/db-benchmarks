@@ -1,7 +1,8 @@
 import process from 'node:process';
 import cassandra from 'cassandra-driver';
-import { Runtime, type Adapter, type ConnectOptions } from '../../src/core/adapter.ts';
+import { Runtime } from '../../src/core/adapter.ts';
 import { createCassandraSuite } from './suite.ts';
+import type { Adapter, ConnectOptions } from '../../src/types/adapter.type.ts';
 
 const DATACENTER = 'datacenter1';
 

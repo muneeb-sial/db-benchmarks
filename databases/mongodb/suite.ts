@@ -8,42 +8,20 @@
  */
 
 import type { Db, Document } from 'mongodb';
-import type { DocShape, SuiteConfig } from '../../src/suite/config.ts';
 import {
   fullTextTerm,
   jsonMarker,
   nestedPath,
   regexTerm,
 } from '../../src/suite/data.ts';
-import { ALL_TABLES, type SuiteRow, type SuiteTable } from '../../src/suite/schema.ts';
-import {
-  OK,
-  type AggSpec,
-  type ExplainOut,
-  type Feature,
-  type IndexKind,
-  type JsonSpec,
-  type QueryKind,
-  type ReadSpec,
-  type RunOut,
-  type SuiteAdapter,
-  type Support,
-  type TextSpec,
-} from '../../src/suite/specs.ts';
+import { ALL_TABLES } from '../../src/suite/schema.ts';
+import { OK } from '../../src/suite/specs.ts';
+import type { DocShape, SuiteConfig } from '../../src/types/config.type.ts';
+import type { SuiteRow, SuiteTable } from '../../src/types/schema.type.ts';
+import type { AggSpec, ExplainOut, Feature, IndexKind, JsonSpec, QueryKind, ReadSpec, RunOut, SuiteAdapter, Support, TextSpec } from '../../src/types/specs.type.ts';
+import type { Plan } from '../../src/types/mongodb.type.ts';
 
 const DUPLICATE_KEY = 11000;
-
-type Plan =
-  | {
-      type: 'find';
-      table: SuiteTable;
-      filter: Document;
-      sort: Document;
-      skip: number;
-      limit: number;
-      projection?: Document;
-    }
-  | { type: 'agg'; table: SuiteTable; pipeline: Document[] };
 
 const USER_PROJECTION: Document = { email: 1, name: 1, score: 1, created_at: 1 };
 
