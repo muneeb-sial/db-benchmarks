@@ -20,15 +20,9 @@ working on both Node and Bun) is worth more than the major bump. Re-test on Bun
 before changing this — the harness will skip MongoDB rather than fail, so a
 regression here shows up as a quietly missing engine rather than an error.
 
-## This is a replica set, not a standalone
+## Replica set
 
-Multi-document transactions **require** a replica set. A standalone `mongod`
-does not fail loudly when you try — it simply has no transaction, so the
-`likes` insert and the `like_count` increment become two independent writes
-that can diverge under concurrency.
-
-The old version of this repo ran `mongo:5.0.26` standalone, which means the
-like workload could not have been measured honestly there at all.
+The compose file runs a single-node replica set rather than a standalone `mongod`.
 
 Two details make the single-node set work:
 
@@ -40,9 +34,6 @@ Two details make the single-node set work:
   hostname the set advertises, which for a single node in Docker is often
   unreachable from the host and surfaces as a server-selection timeout.
 
-The adapter checks `hello.setName` on connect and refuses to run against a
-standalone, with an explanatory error.
-
 ## Fairness notes
 
 - On a single-node set, `w:"majority"` is satisfied by one node, so **MongoDB
@@ -51,12 +42,3 @@ standalone, with an explanatory error.
   itself from the cgroup to roughly 1.5GB under a 4g cap, while Postgres and
   MySQL sit at their hardcoded 128MB defaults — a 12× advantage that looks like
   speed.
-- `likes` uses a deterministic `_id` of `"<userId>:<postId>"`, which gives the
-  uniqueness constraint for free without a second index.
-
-## Contention behaviour
-
-`session.withTransaction` is used rather than manual start/commit, because it
-retries the `TransientTransactionError` and `UnknownTransactionCommitResult`
-labels — which `WriteConflict` (code 112) raises routinely under the hot
-workload. Watch the retry column.

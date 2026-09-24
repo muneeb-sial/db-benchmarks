@@ -41,7 +41,6 @@ export function describeCell(c: TestCell): string {
 
 export async function runSuite(o: SuiteRunOptions): Promise<SuiteEngineResult> {
   const suite = o.adapter.suite;
-  if (!suite) throw new Error(`${o.adapter.displayName} has no suite implementation`);
   const { cfg, log } = o;
 
   const plan = makePlan(cfg);

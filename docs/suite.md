@@ -2,16 +2,15 @@
 
 The write and read suite specified in [features.md](features.md): tests W1-W4
 and R1-R10, three query shapes, three read modes, six limits, five concurrency
-levels. It runs beside the transactional `like-tx` workload and never touches
-its tables.
+levels.
 
 ```bash
 # quick end-to-end check (small dataset, 2 concurrency levels, 1s per cell)
-node src/cli.ts --suite --profile smoke --db postgres
+node src/cli.ts --profile smoke --db postgres
 
 # the full matrix on one engine, or a slice of it
-node src/cli.ts --suite --db postgres
-node src/cli.ts --suite --db postgres,mysql --tests r1,r4,w3
+node src/cli.ts --db postgres
+node src/cli.ts --db postgres,mysql --tests r1,r4,w3
 ```
 
 ## Everything is configurable
@@ -59,7 +58,7 @@ run is roughly 2 hours per engine; use `--tests` to run a slice.
 
 ## Data model
 
-The suite has its own tables so its data never disturbs `like-tx`.
+The suite creates its own prefixed tables (`dataset.tablePrefix`) and recreates them on every run.
 
 | Table | Columns | Notes |
 | --- | --- | --- |
@@ -174,7 +173,7 @@ Under `results/<run-id>/`:
 
 ## Caveats
 
-- **Closed-loop measurement.** Like the rest of the repo, results are comparative
+- **Closed-loop measurement.** Results are comparative
   between engines, not absolute service levels.
 - **R2 returns one row** (the unique key matches one user; joined shapes return
   that user's rows), so its `limit` does not change the result size. It is run

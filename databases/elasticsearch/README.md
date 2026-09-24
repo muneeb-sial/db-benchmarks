@@ -3,23 +3,12 @@
 ```bash
 docker compose up -d --wait
 node ../../src/cli.ts --db elasticsearch
-node ../../src/cli.ts --suite --db elasticsearch --profile smoke
+node ../../src/cli.ts --db elasticsearch --profile smoke
 ```
 
 Driver: `@elastic/elasticsearch` (official client), pure JS. Image:
 `docker.elastic.co/elasticsearch/elasticsearch:8.15.3`, single node, security
 disabled for local benchmarking. Port **9200**, no authentication.
-
-## It does not run the like transaction
-
-`like-tx` is **skipped**, with the reason recorded in the results. Elasticsearch
-has no multi-document transaction primitive at all -- not even Cassandra's
-weaker "atomic but not isolated" logged `BATCH`. A single document write is
-atomic; the like and the post's counter, as two documents, never are together.
-`transactionality` is `none`.
-
-`top-posts`, unlike on Cassandra, **is** supported: sorting by `like_count`
-is exactly what Elasticsearch's own index is fast at.
 
 ## What the suite runs
 

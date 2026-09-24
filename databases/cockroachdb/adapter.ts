@@ -6,13 +6,6 @@ import { createAdapter as createPgFamilyAdapter } from '../postgres/adapter.ts';
 /**
  * CockroachDB reuses the Postgres adapter wholesale: it speaks the Postgres
  * wire protocol and accepts the same schema unchanged.
- *
- * What genuinely differs is transaction behaviour. CockroachDB defaults to
- * SERIALIZABLE and aborts conflicting transactions with SQLSTATE 40001 rather
- * than blocking on a row lock. Under the hot-contention workload that is the
- * expected path, not an edge case -- and `sql.begin()` does not retry on its
- * own, so the shared withRetry wrapper in the Postgres adapter is doing real
- * work here. Retry counts in the results are the number to watch.
  */
 export function createAdapter(): Adapter {
   const base = createPgFamilyAdapter({

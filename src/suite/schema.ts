@@ -1,8 +1,7 @@
 /**
  * Logical schema for the suite, independent of any engine.
  *
- * The suite has its own tables (default prefix `suite_`) so its million-row data
- * and extra columns never touch the like-tx tables or their integrity check.
+ * The suite has its own tables (default prefix `suite_`), recreated on every run.
  *
  *   users      email is the unique key; created_at is indexed after load;
  *              score is deliberately NON-indexed (R3, R7, R8); name and bio are
