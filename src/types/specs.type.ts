@@ -105,3 +105,40 @@ export interface SuiteAdapter {
   dropIndex(kind: IndexKind): Promise<void>;
   indexSizeBytes(kind: IndexKind): Promise<number | null>;
 }
+
+// The suite's tests, one method per test (docs/suite.md), grouped into ReadImpl and
+// WriteImpl. Only Postgres implements them so far (databases/postgres/impl.ts).
+
+export interface WriteImpl {
+  /** W1: single inserts, non-transactional, no unique-key check. */
+  w1(table: SuiteTable, row: SuiteRow): Promise<void>;
+  /** W2: single inserts with the unique key enforced; a duplicate must throw. */
+  w2(table: SuiteTable, row: SuiteRow): Promise<void>;
+  /** W3: one batch per operation, sized from `writes.w3.batchSizes`. */
+  w3(table: SuiteTable, rows: readonly SuiteRow[]): Promise<void>;
+  /** W4: raw JSON document insert, one per operation. N/A without a document type. */
+  w4(table: SuiteTable, row: SuiteRow): Promise<void>;
+}
+
+export interface ReadImpl {
+  /** R1: no filter; shapes x modes (limit / offset / cursor) x limits. */
+  r1(spec: ReadSpec & { filter: { kind: 'none' } }): Promise<RunOut>;
+  /** R2: `email = ?` on the unique key, a fresh random email each time. */
+  r2(spec: ReadSpec & { filter: { kind: 'email'; value: string } }): Promise<RunOut>;
+  /** R3: `score < cutoff` on a column with no index (full scan). */
+  r3(spec: ReadSpec & { filter: { kind: 'scoreBelow'; value: number } }): Promise<RunOut>;
+  /** R4: no filter; offset and cursor modes walk the whole table page by page. */
+  r4(spec: ReadSpec & { mode: 'offset' | 'cursor' }): Promise<RunOut>;
+  /** R5: point lookup by PK (uniform and hot-key) and multi-get `IN (...)`. */
+  r5(spec: ReadSpec & { filter: { kind: 'id'; value: number } | { kind: 'ids'; values: number[] } }): Promise<RunOut>;
+  /** R6: `created_at BETWEEN a AND b`, range sized to match `limit` users. */
+  r6(spec: ReadSpec & { filter: { kind: 'range'; from: Date; to: Date } }): Promise<RunOut>;
+  /** R7: COUNT / SUM and the three GROUP BY aggregations. */
+  r7(spec: AggSpec): Promise<RunOut>;
+  /** R8: top-N on an indexed vs non-indexed sort key, plus a full sort over a capped slice. */
+  r8(spec: ReadSpec & { sort: { column: 'created_at' | 'score' } }): Promise<RunOut>;
+  /** R9: prefix / contains / suffix LIKE and full-text, without and with an index. */
+  r9(spec: TextSpec): Promise<RunOut>;
+  /** R10: JSON filter on a top-level, nested and array field, without and with an index. */
+  r10(spec: JsonSpec): Promise<RunOut>;
+}

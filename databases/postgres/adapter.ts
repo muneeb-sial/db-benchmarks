@@ -4,6 +4,7 @@ import { errorCode } from '../../src/core/errors.ts';
 import { DIALECTS } from '../../src/sql/dialect.ts';
 import { toRunOut } from '../../src/sql/queries.ts';
 import { createSqlSuite } from '../../src/sql/suite.ts';
+import { withPostgresImpl } from './impl.ts';
 import type { Adapter, ConnectOptions } from '../../src/types/adapter.type.ts';
 import type { SqlExecutor } from '../../src/types/sql-suite.type.ts';
 import type { PgFamilyOptions } from '../../src/types/postgres.type.ts';
@@ -66,12 +67,17 @@ export function createAdapter(options: PgFamilyOptions = {}): Adapter {
     },
   };
 
+  // The per-test ReadImpl / WriteImpl are Postgres-dialect only; CockroachDB keeps the shared suite.
+  const dialect = options.dialect ?? 'postgres';
+  const shared = createSqlSuite(DIALECTS[dialect], executor);
+  const suite = dialect === 'postgres' ? withPostgresImpl(shared, executor) : shared;
+
   return {
     engine: options.engine ?? 'postgres',
     displayName: options.displayName ?? 'PostgreSQL',
     // postgres.js is the one driver with first-class support on all three.
     supportedRuntimes: options.supportedRuntimes ?? [Runtime.Node, Runtime.Bun],
-    suite: createSqlSuite(DIALECTS[options.dialect ?? 'postgres'], executor),
+    suite: suite,
 
     async connect(opts: ConnectOptions) {
       sql = postgres({
