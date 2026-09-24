@@ -8,27 +8,8 @@
 
 import { mkdir, writeFile } from 'node:fs/promises';
 import path from 'node:path';
-import type { HostInfo } from './runtime.ts';
-import type { SuiteEngineResult } from '../suite/results.ts';
 import { writeSuiteReports } from '../suite/report.ts';
-
-export interface EngineResult {
-  engine: string;
-  displayName: string;
-  serverVersion: string;
-  memoryConfig: Record<string, string>;
-  /** Results of the write/read benchmark suite (features.md), when it ran. */
-  suite?: SuiteEngineResult;
-  skipped?: string;
-}
-
-export interface BenchmarkRun {
-  runId: string;
-  startedAt: string;
-  host: HostInfo;
-  config: Record<string, unknown>;
-  engines: EngineResult[];
-}
+import type { BenchmarkRun } from '../types/reporter.type.ts';
 
 export function newRunId(): string {
   return new Date().toISOString().replace(/[:.]/g, '-').replace('T', '_').slice(0, 19);

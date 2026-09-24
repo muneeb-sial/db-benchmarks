@@ -1,31 +1,15 @@
 import postgres from 'postgres';
-import { Runtime, type Adapter, type ConnectOptions } from '../../src/core/adapter.ts';
+import { Runtime } from '../../src/core/adapter.ts';
 import { errorCode } from '../../src/core/errors.ts';
 import { DIALECTS } from '../../src/sql/dialect.ts';
 import { toRunOut } from '../../src/sql/queries.ts';
-import { createSqlSuite, type SqlExecutor } from '../../src/sql/suite.ts';
+import { createSqlSuite } from '../../src/sql/suite.ts';
+import type { Adapter, ConnectOptions } from '../../src/types/adapter.type.ts';
+import type { SqlExecutor } from '../../src/types/sql-suite.type.ts';
+import type { PgFamilyOptions } from '../../src/types/postgres.type.ts';
 
 /** 23505 unique_violation. */
 const UNIQUE_VIOLATION = '23505';
-
-/**
- * CockroachDB speaks the Postgres wire protocol and accepts this schema
- * unchanged, so it reuses this adapter rather than duplicating it. Only the
- * identity and the server-introspection queries differ.
- */
-export interface PgFamilyOptions {
-  engine?: string;
-  displayName?: string;
-  supportedRuntimes?: readonly Runtime[];
-  /**
-   * How to read the server version. CockroachDB's `server_version` reports the
-   * Postgres compatibility level it advertises (13.0.0), not its own version,
-   * so it substitutes `select version()`.
-   */
-  versionQuery?: (sql: postgres.Sql) => Promise<string>;
-  /** Which SQL dialect the suite renders for. */
-  dialect?: 'postgres' | 'cockroachdb';
-}
 
 export function createAdapter(options: PgFamilyOptions = {}): Adapter {
   let sql: postgres.Sql | null = null;

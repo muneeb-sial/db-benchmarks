@@ -26,24 +26,12 @@
  */
 
 import { Client, errors, type estypes } from '@elastic/elasticsearch';
-import type { DocShape, SuiteConfig } from '../../src/suite/config.ts';
 import { nestedPath } from '../../src/suite/data.ts';
-import { ALL_TABLES, type SuiteRow, type SuiteTable } from '../../src/suite/schema.ts';
-import {
-  OK,
-  na,
-  type AggSpec,
-  type ExplainOut,
-  type Feature,
-  type IndexKind,
-  type JsonSpec,
-  type QueryKind,
-  type ReadSpec,
-  type RunOut,
-  type SuiteAdapter,
-  type Support,
-  type TextSpec,
-} from '../../src/suite/specs.ts';
+import { ALL_TABLES } from '../../src/suite/schema.ts';
+import { OK, na } from '../../src/suite/specs.ts';
+import type { DocShape, SuiteConfig } from '../../src/types/config.type.ts';
+import type { SuiteRow, SuiteTable } from '../../src/types/schema.type.ts';
+import type { AggSpec, ExplainOut, Feature, IndexKind, JsonSpec, QueryKind, ReadSpec, RunOut, SuiteAdapter, Support, TextSpec } from '../../src/types/specs.type.ts';
 
 const UNIQUE_STATUS = 409;
 const noRows: RunOut = { rows: 0, lastKey: null };

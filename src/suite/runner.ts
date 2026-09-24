@@ -14,24 +14,8 @@
  * not include the time spent generating its rows).
  */
 
-import { median, summarize, type Summary } from '../core/stats.ts';
-
-export type OpOut = number | { rows: number; timeMs?: number };
-
-export interface Measure {
-  ops: number;
-  wallMs: number;
-  rows: number;
-  latency: Summary;
-  errors: number;
-  ukViolations: number;
-  sampleErrors: string[];
-}
-
-interface Common {
-  concurrency: number;
-  isUniqueViolation?: (err: unknown) => boolean;
-}
+import { median, summarize } from '../core/stats.ts';
+import type { Common, Measure, OpOut, TraversalOut } from '../types/runner.type.ts';
 
 const MAX_SAMPLES = 2_000_000;
 
@@ -135,18 +119,6 @@ export async function runFixed(
     ukViolations: uk,
     sampleErrors: [...sampleErrors],
   };
-}
-
-export interface TraversalOut {
-  perPageMs: number[];
-  totalMs: number;
-  pages: number;
-  rows: number;
-  wallMs: number;
-  errors: number;
-  sampleErrors: string[];
-  /** Every page latency from every worker, for the summary statistics. */
-  allPageMs: number[];
 }
 
 export async function runTraversal(o: {

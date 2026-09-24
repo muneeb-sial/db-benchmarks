@@ -13,7 +13,8 @@
 import { readdir, readFile, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import process from 'node:process';
-import { renderMarkdown, type BenchmarkRun } from '../src/core/reporter.ts';
+import { renderMarkdown } from '../src/core/reporter.ts';
+import type { BenchmarkRun } from '../src/types/reporter.type.ts';
 
 const resultsDir = process.argv[2] ?? 'results';
 const START = '<!-- start -->';

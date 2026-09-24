@@ -7,55 +7,15 @@
  * executor rather than 40 methods.
  */
 
-import type { DocShape, SuiteConfig } from '../suite/config.ts';
-import {
-  ALL_TABLES,
-  TABLES,
-  columnNames,
-  rowToArray,
-  type ColumnDef,
-  type SuiteRow,
-  type SuiteTable,
-} from '../suite/schema.ts';
-import {
-  OK,
-  na,
-  type ExplainOut,
-  type Feature,
-  type IndexKind,
-  type QueryKind,
-  type RunOut,
-  type SuiteAdapter,
-  type Support,
-} from '../suite/specs.ts';
-import type { Dialect } from './dialect.ts';
-import {
-  buildAgg,
-  buildJson,
-  buildRead,
-  buildText,
-  indexDdl,
-  tableNames,
-  usedIndex,
-  type Built,
-  type Names,
-} from './queries.ts';
-
-export interface SqlExecutor {
-  /** Runs a SELECT and reports the row count and the last `k_` value. */
-  query(sql: string, params: unknown[]): Promise<RunOut>;
-  /** Runs a statement with no parameters and no result (DDL, TRUNCATE, ANALYZE). */
-  execute(sql: string): Promise<void>;
-  /** Runs a parameterized write. */
-  write(sql: string, params: unknown[]): Promise<void>;
-  /** The engine's plan for `sql`, as text. */
-  explain(sql: string, params: unknown[]): Promise<string>;
-  /** Inserts rows into a physical table. Arrays follow the table's column order. */
-  bulkInsert(table: string, cols: ColumnDef[], rows: unknown[][]): Promise<void>;
-  isUniqueViolation(err: unknown): boolean;
-  /** First column of the first row as a number, or null. */
-  scalar(sql: string): Promise<number | null>;
-}
+import { ALL_TABLES, TABLES, columnNames, rowToArray } from '../suite/schema.ts';
+import { OK, na } from '../suite/specs.ts';
+import { buildAgg, buildJson, buildRead, buildText, indexDdl, tableNames, usedIndex } from './queries.ts';
+import type { DocShape, SuiteConfig } from '../types/config.type.ts';
+import type { ColumnDef, SuiteRow, SuiteTable } from '../types/schema.type.ts';
+import type { ExplainOut, Feature, IndexKind, QueryKind, SuiteAdapter, Support } from '../types/specs.type.ts';
+import type { Dialect } from '../types/dialect.type.ts';
+import type { Built, Names } from '../types/queries.type.ts';
+import type { SqlExecutor } from '../types/sql-suite.type.ts';
 
 export function createSqlSuite(d: Dialect, ex: SqlExecutor): SuiteAdapter {
   let cfg: SuiteConfig | null = null;

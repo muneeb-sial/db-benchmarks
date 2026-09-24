@@ -11,74 +11,13 @@
  * drops it, rather than rebuilding it between every cell.
  */
 
-import type { ReadMode, Shape, SuiteConfig } from './config.ts';
-import {
-  SCORE_MAX,
-  docRow,
-  emailOf,
-  hash32,
-  positionFor,
-  rangeFor,
-  writeEmailOf,
-  writeRow,
-  type DataPlan,
-} from './data.ts';
-import type { OpOut } from './runner.ts';
-import type { SuiteTable } from './schema.ts';
-import type {
-  AggKind,
-  AggSpec,
-  Feature,
-  Filter,
-  IndexKind,
-  JsonFilter,
-  QueryKind,
-  ReadSpec,
-  SuiteAdapter,
-  TextPattern,
-} from './specs.ts';
-
-export interface CellContext {
-  suite: SuiteAdapter;
-  cfg: SuiteConfig;
-  plan: DataPlan;
-}
-
-export type CellRunner =
-  | { kind: 'timed'; op: (iteration: number, worker: number) => Promise<OpOut> }
-  | {
-      kind: 'fixed';
-      totalOps: number;
-      /** Untimed setup, run before the measured work (truncate, seed). */
-      prepare?: () => Promise<void>;
-      op: (index: number) => Promise<OpOut>;
-    }
-  | {
-      kind: 'traversal';
-      pageSize: number;
-      walk: (worker: number) => Promise<{ pageMs: number[]; rows: number }>;
-    };
-
-export interface TestCell {
-  id: string;
-  group: string;
-  title: string;
-  shape: Shape | null;
-  mode: ReadMode | null;
-  limit: number | null;
-  variant: string | null;
-  /** What to ask an engine "can you run this?". Always a representative instance. */
-  feature: Feature;
-  /** Representative query for EXPLAIN, or null (writes). */
-  explainQuery: QueryKind | null;
-  /** undefined: leave indexes alone. null: no test index. Otherwise: this index must exist. */
-  needsIndex: IndexKind | null | undefined;
-  /** Seed tables this cell reads, beyond users. */
-  needs: SuiteTable[];
-  /** Rows held in memory at once at this concurrency, checked against guards.maxInFlightRows. */
-  inFlightRows: (concurrency: number) => number;
-  runner: (concurrency: number) => CellRunner;
-}
+import type { Shape } from '../types/config.type.ts';
+import { SCORE_MAX, docRow, emailOf, hash32, positionFor, rangeFor, writeEmailOf, writeRow } from './data.ts';
+import type { DataPlan } from '../types/data.type.ts';
+import type { OpOut } from '../types/runner.type.ts';
+import type { SuiteTable } from '../types/schema.type.ts';
+import type { AggKind, AggSpec, Feature, Filter, IndexKind, JsonFilter, ReadSpec, TextPattern } from '../types/specs.type.ts';
+import type { CellContext, ReadCellArgs, TestCell } from '../types/tests.type.ts';
 
 const TITLES: Record<string, string> = {
   w1: 'Single inserts, non-transactional, no UK check',
@@ -123,19 +62,6 @@ const totalRows = (plan: DataPlan, shape: Shape): number =>
 const readSpec = (
   o: Pick<ReadSpec, 'test' | 'shape' | 'mode' | 'limit' | 'filter'> & Partial<ReadSpec>,
 ): ReadSpec => ({ offset: 0, after: 0, sort: null, ...o });
-
-interface ReadCellArgs {
-  id: string;
-  shape: Shape;
-  mode: ReadMode;
-  limit: number | null;
-  variant: string | null;
-  base: ReadSpec;
-  /** Rows in the (filtered) result set, so offsets and cursors stay inside it. */
-  span: number;
-  filterFor?: (slot: number) => Filter;
-  traversal?: boolean;
-}
 
 function readOp(ctx: CellContext, base: ReadSpec, span: number, filterFor?: (slot: number) => Filter) {
   return async (iteration: number, worker: number): Promise<OpOut> => {

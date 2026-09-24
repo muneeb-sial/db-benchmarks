@@ -1,8 +1,10 @@
 import sql from 'mssql';
-import { Runtime, type Adapter, type ConnectOptions } from '../../src/core/adapter.ts';
+import { Runtime } from '../../src/core/adapter.ts';
 import { DIALECTS } from '../../src/sql/dialect.ts';
 import { toRunOut } from '../../src/sql/queries.ts';
-import { createSqlSuite, type SqlExecutor } from '../../src/sql/suite.ts';
+import { createSqlSuite } from '../../src/sql/suite.ts';
+import type { Adapter, ConnectOptions } from '../../src/types/adapter.type.ts';
+import type { SqlExecutor } from '../../src/types/sql-suite.type.ts';
 
 /** 2627 unique/primary key constraint violation, 2601 duplicate key in a unique index. */
 const DUPLICATE_KEYS = new Set([2627, 2601]);

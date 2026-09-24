@@ -11,9 +11,10 @@
 
 import { mkdir, writeFile } from 'node:fs/promises';
 import path from 'node:path';
-import type { BenchmarkRun, EngineResult } from '../core/reporter.ts';
-import type { SuiteConfig } from './config.ts';
-import type { SuiteCellResult, TraversalResult } from './results.ts';
+import type { BenchmarkRun, EngineResult } from '../types/reporter.type.ts';
+import type { SuiteConfig } from '../types/config.type.ts';
+import type { SuiteCellResult, TraversalResult } from '../types/results.type.ts';
+import type { Series } from '../types/report.type.ts';
 
 const n = (v: number, digits = 2): string =>
   v.toLocaleString('en-US', { minimumFractionDigits: digits, maximumFractionDigits: digits });
@@ -143,15 +144,6 @@ export function renderExplain(engine: EngineResult): string {
     out.push('');
   }
   return out.join('\n');
-}
-
-// ------------------------------------------------------------------ charts --
-
-interface Series {
-  label: string;
-  color: string;
-  dash?: string;
-  points: number[];
 }
 
 const esc = (s: string): string =>

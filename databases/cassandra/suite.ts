@@ -18,18 +18,10 @@
  */
 
 import cassandra from 'cassandra-driver';
-import { columnNames, type SuiteRow, type SuiteTable } from '../../src/suite/schema.ts';
-import {
-  OK,
-  na,
-  type ExplainOut,
-  type Feature,
-  type QueryKind,
-  type ReadSpec,
-  type RunOut,
-  type SuiteAdapter,
-  type Support,
-} from '../../src/suite/specs.ts';
+import { columnNames } from '../../src/suite/schema.ts';
+import { OK, na } from '../../src/suite/specs.ts';
+import type { SuiteRow, SuiteTable } from '../../src/types/schema.type.ts';
+import type { ExplainOut, Feature, QueryKind, ReadSpec, RunOut, SuiteAdapter, Support } from '../../src/types/specs.type.ts';
 
 const LOAD_CONCURRENCY = 128;
 const USER_COLS = 'id, email, name, score, created_at';

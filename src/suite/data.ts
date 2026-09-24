@@ -1,3 +1,7 @@
+import type { DocShape, SuiteConfig } from '../types/config.type.ts';
+import type { SuiteRow } from '../types/schema.type.ts';
+import type { Block, DataPlan } from '../types/data.type.ts';
+
 /**
  * Deterministic data for the suite.
  *
@@ -11,9 +15,6 @@
  * documents carry `k100`, so a search for L's marker returns exactly L rows.
  * Text search and JSON tests therefore return the intended result size.
  */
-
-import type { DocShape, SuiteConfig } from './config.ts';
-import type { SuiteRow } from './schema.ts';
 
 export const BASE_TS = Date.UTC(2024, 0, 1);
 /** created_at grows by one second per id, so a time range maps to an exact id range. */
@@ -31,12 +32,6 @@ export function hash32(seed: number, i: number, salt: number): number {
   return h >>> 0;
 }
 
-export interface Block {
-  limit: number;
-  start: number;
-  end: number;
-}
-
 export function plantedBlocks(limits: readonly number[]): Block[] {
   const sorted = [...new Set(limits)].sort((a, b) => a - b);
   const blocks: Block[] = [];
@@ -51,16 +46,6 @@ export function plantedBlocks(limits: readonly number[]): Block[] {
 export function blockAt(blocks: readonly Block[], id: number): Block | null {
   for (const b of blocks) if (id >= b.start && id <= b.end) return b;
   return null;
-}
-
-export interface DataPlan {
-  cfg: SuiteConfig;
-  seed: number;
-  blocks: Block[];
-  users: number;
-  posts: number;
-  likes: number;
-  documents: number;
 }
 
 export function makePlan(cfg: SuiteConfig): DataPlan {

@@ -1,15 +1,9 @@
+import type { EngineDescriptor } from '../types/registry.type.ts';
+
 /**
  * Maps an engine name to its adapter. Each database owns its folder, so adding
  * one means adding a directory and a line here.
  */
-
-import type { Adapter, ConnectOptions } from './adapter.ts';
-
-export interface EngineDescriptor {
-  /** Default connection settings, matching that engine's docker-compose.yml. */
-  defaults: ConnectOptions;
-  load: () => Promise<Adapter>;
-}
 
 export const ENGINES: Record<string, EngineDescriptor> = {
   postgres: {

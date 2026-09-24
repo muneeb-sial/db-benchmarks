@@ -11,82 +11,22 @@
  */
 
 import { readFile } from 'node:fs/promises';
+import type { LoadOptions, Obj, ReadMode as ReadModeName, Shape as ShapeName, SuiteConfig } from '../types/config.type.ts';
 
 export const Shape = {
   Simple: 'simple',
   SingleJoin: 'single-join',
   MultiJoin: 'multi-join',
 } as const;
-export type Shape = (typeof Shape)[keyof typeof Shape];
 
 export const ReadMode = {
   Limit: 'limit',
   Offset: 'offset',
   Cursor: 'cursor',
 } as const;
-export type ReadMode = (typeof ReadMode)[keyof typeof ReadMode];
 
-export const SHAPES: readonly Shape[] = [Shape.Simple, Shape.SingleJoin, Shape.MultiJoin];
-export const READ_MODES: readonly ReadMode[] = [ReadMode.Limit, ReadMode.Offset, ReadMode.Cursor];
-
-export interface DocShape {
-  /** Extra scalar fields on the document root, besides `tag`. */
-  topLevelFields: number;
-  /** Depth of the nested object holding the nested-filter field. */
-  nestedDepth: number;
-  /** Elements in the `tags` array. */
-  arraySize: number;
-}
-
-export interface SuiteConfig {
-  concurrency: number[];
-  limits: number[];
-  shapes: Shape[];
-  readModes: ReadMode[];
-
-  run: { durationSec: number; warmupSec: number; repeats: number };
-
-  dataset: {
-    users: number;
-    posts: number;
-    likes: number;
-    documents: number;
-    seed: number;
-    tablePrefix: string;
-    /** Rows per bulk insert while seeding. */
-    loadChunk: number;
-  };
-
-  guards: {
-    /** Cells whose concurrency x rows-per-op exceeds this are skipped, not shrunk. */
-    maxInFlightRows: number;
-  };
-
-  writes: {
-    w1: { rowsPerCell: number };
-    w2: { rowsPerCell: number; duplicateRatio: number; seedRows: number };
-    w3: { batchSizes: number[]; maxRowsPerCell: number };
-    w4: { rowsPerCell: number };
-  };
-
-  reads: {
-    r3: { scoreCutoff: number };
-    r4: { maxPages: number };
-    r5: {
-      multiGetSizes: number[];
-      hotKey: { enabled: boolean; hotKeys: number; hotTraffic: number };
-    };
-    r7: { countRangeFraction: number };
-    r8: { fullSortRowCap: number };
-    r9: { fullText: boolean };
-    r10: { docShape: DocShape };
-  };
-
-  reports: {
-    r4Chart: { concurrency: number; pageSize: number };
-    summaryConcurrency: number;
-  };
-}
+export const SHAPES: readonly ShapeName[] = [Shape.Simple, Shape.SingleJoin, Shape.MultiJoin];
+export const READ_MODES: readonly ReadModeName[] = [ReadMode.Limit, ReadMode.Offset, ReadMode.Cursor];
 
 /** Raw (JSON-shaped) defaults. Sizes stay strings here, exactly as a user would write them. */
 const DEFAULTS: Record<string, unknown> = {
@@ -155,8 +95,6 @@ const DEFAULTS: Record<string, unknown> = {
 };
 
 export const DEFAULT_CONFIG_PATH = 'bench.config.json';
-
-type Obj = Record<string, unknown>;
 
 const isObj = (v: unknown): v is Obj => typeof v === 'object' && v !== null && !Array.isArray(v);
 
@@ -324,12 +262,6 @@ function validate(cfg: SuiteConfig): void {
   if (cfg.run.durationSec <= 0 || cfg.run.warmupSec < 0) {
     throw new Error('config: run.durationSec must be > 0 and run.warmupSec >= 0');
   }
-}
-
-export interface LoadOptions {
-  /** Path given explicitly with --config. A missing explicit file is an error. */
-  path?: string | undefined;
-  profile?: string | undefined;
 }
 
 export async function loadConfig(opts: LoadOptions = {}): Promise<SuiteConfig> {

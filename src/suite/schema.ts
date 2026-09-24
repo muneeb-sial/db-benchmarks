@@ -1,38 +1,4 @@
-/**
- * Logical schema for the suite, independent of any engine.
- *
- * The suite has its own tables (default prefix `suite_`), recreated on every run.
- *
- *   users      email is the unique key; created_at is indexed after load;
- *              score is deliberately NON-indexed (R3, R7, R8); name and bio are
- *              the text-search targets (R9)
- *   posts      belongs to a user; views is the numeric column for SUM (R7)
- *   likes      belongs to a post and a user
- *   documents  one JSON document per row (R10)
- *   w_plain    scratch table for W1/W3: no unique key
- *   w_uk       scratch table for W2: email is unique
- *   w_docs     scratch table for W4: JSON inserts
- */
-
-export type SuiteTable =
-  | 'users'
-  | 'posts'
-  | 'likes'
-  | 'documents'
-  | 'w_plain'
-  | 'w_uk'
-  | 'w_docs';
-
-export type ColType = 'int' | 'varchar' | 'text' | 'timestamp' | 'json';
-
-export interface ColumnDef {
-  name: string;
-  type: ColType;
-  pk?: boolean;
-  unique?: boolean;
-}
-
-export type SuiteRow = Record<string, unknown>;
+import type { ColumnDef, SuiteRow, SuiteTable } from '../types/schema.type.ts';
 
 const USER_COLUMNS: ColumnDef[] = [
   { name: 'id', type: 'int', pk: true },

@@ -3,11 +3,7 @@
 import os from 'node:os';
 import process from 'node:process';
 import { Runtime } from './adapter.ts';
-
-interface RuntimeGlobals {
-  Deno?: { version?: { deno?: string } };
-  Bun?: { version?: string };
-}
+import type { HostInfo, Runtime as RuntimeName, RuntimeGlobals } from '../types/runtime.type.ts';
 
 /** Deno exposes a Node-compat `process` shim, so it would otherwise be misdetected as Node. */
 export function isDeno(): boolean {
@@ -26,24 +22,13 @@ export function assertSupportedRuntime(): void {
   }
 }
 
-export function detectRuntime(): Runtime {
+export function detectRuntime(): RuntimeName {
   return typeof (globalThis as RuntimeGlobals).Bun?.version === 'string' ? Runtime.Bun : Runtime.Node;
 }
 
 export function runtimeVersion(): string {
   const g = globalThis as RuntimeGlobals;
   return g.Bun?.version ?? process.version;
-}
-
-export interface HostInfo {
-  runtime: Runtime;
-  runtimeVersion: string;
-  platform: string;
-  arch: string;
-  cpuModel: string;
-  cpuCount: number;
-  totalMemoryGB: number;
-  osRelease: string;
 }
 
 /**
