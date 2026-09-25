@@ -20,8 +20,10 @@ report it so the results stay reproducible.
 write/read suite ([docs/suite.md](../../docs/suite.md)). For a SQL engine
 that is a `Dialect` in `src/sql/dialect.ts` plus a small `SqlExecutor` (see
 `databases/mysql/adapter.ts`); everything else, including schema, indexes, query
-building and the N/A rules, is shared. A non-SQL engine implements `SuiteAdapter`
-directly (see `databases/mongodb/suite.ts`, `databases/cassandra/suite.ts`).
+building and the N/A rules, is shared. Every engine supplies a per-test `ReadImpl` / `WriteImpl`
+(one method per suite test) and wires it in with `withImpl(suite, create)` from `src/suite/with-impl.ts`:
+SQL engines reuse `createSqlImpl`; a non-SQL engine writes its own `impl.ts` and implements
+`SuiteAdapter` for the rest (see `databases/mongodb/`, `databases/cassandra/`, `databases/elasticsearch/`).
 Return `na(reason)` from `support()` for anything the engine cannot do honestly.
 
 ## Engines already here

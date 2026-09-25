@@ -4,7 +4,8 @@ import { errorCode } from '../../src/core/errors.ts';
 import { DIALECTS } from '../../src/sql/dialect.ts';
 import { toRunOut } from '../../src/sql/queries.ts';
 import { createSqlSuite } from '../../src/sql/suite.ts';
-import { withPostgresImpl } from './impl.ts';
+import { createSqlImpl } from '../../src/sql/impl.ts';
+import { withImpl } from '../../src/suite/with-impl.ts';
 import type { Adapter, ConnectOptions } from '../../src/types/adapter.type.ts';
 import type { SqlExecutor } from '../../src/types/sql-suite.type.ts';
 import type { PgFamilyOptions } from '../../src/types/postgres.type.ts';
@@ -67,10 +68,8 @@ export function createAdapter(options: PgFamilyOptions = {}): Adapter {
     },
   };
 
-  // The per-test ReadImpl / WriteImpl are Postgres-dialect only; CockroachDB keeps the shared suite.
-  const dialect = options.dialect ?? 'postgres';
-  const shared = createSqlSuite(DIALECTS[dialect], executor);
-  const suite = dialect === 'postgres' ? withPostgresImpl(shared, executor) : shared;
+  const d = DIALECTS[options.dialect ?? 'postgres'];
+  const suite = withImpl(createSqlSuite(d, executor), (o) => createSqlImpl(d, executor, o));
 
   return {
     engine: options.engine ?? 'postgres',

@@ -18,101 +18,21 @@
  */
 
 import cassandra from 'cassandra-driver';
-import { columnNames } from '../../src/suite/schema.ts';
+import { createCql, UniqueViolation } from './cql.ts';
 import { OK, na } from '../../src/suite/specs.ts';
-import type { SuiteRow, SuiteTable } from '../../src/types/schema.type.ts';
-import type { ExplainOut, Feature, QueryKind, ReadSpec, RunOut, SuiteAdapter, Support } from '../../src/types/specs.type.ts';
+import type { SuiteTable } from '../../src/types/schema.type.ts';
+import type { ExplainOut, Feature, RunOut, SuiteAdapter, Support } from '../../src/types/specs.type.ts';
 
-const LOAD_CONCURRENCY = 128;
-const USER_COLS = 'id, email, name, score, created_at';
 
-class UniqueViolation extends Error {}
 
-const noRows: RunOut = { rows: 0, lastKey: null };
+
+const PROVIDED = 'reads and writes are provided by createCassandraImpl via withImpl';
 
 export function createCassandraSuite(getClient: () => cassandra.Client): SuiteAdapter {
   let prefix = 'suite_';
 
   const table = (t: SuiteTable): string => `${prefix}${t}`;
-
-  const idOf = (row: cassandra.types.Row | undefined): number | null => {
-    if (!row) return null;
-    const v = row.get('id') as unknown;
-    return typeof v === 'number' ? v : null;
-  };
-
-  /** CQL text and bound parameters for a query. */
-  function cql(q: QueryKind): { text: string; params: unknown[] } {
-    if (q.kind === 'agg') {
-      const s = q.spec;
-      const users = table('users');
-      switch (s.kind) {
-        case 'count-all':
-          return { text: `select count(*) as n from ${users}`, params: [] };
-        case 'count-indexed':
-          return {
-            text: `select count(*) as n from ${users} where created_at >= ? and created_at <= ?`,
-            params: [s.range!.from, s.range!.to],
-          };
-        case 'count-nonindexed':
-          return {
-            text: `select count(*) as n from ${users} where score < ? allow filtering`,
-            params: [s.scoreBelow!],
-          };
-        case 'sum':
-          return { text: `select sum(views) as n from ${table('posts')}`, params: [] };
-        default:
-          throw new Error(`cassandra cannot run ${s.kind}`);
-      }
-    }
-    if (q.kind !== 'read') throw new Error(`cassandra cannot run ${q.kind} queries`);
-    return readCql(q.spec);
-  }
-
-  function readCql(spec: ReadSpec): { text: string; params: unknown[] } {
-    const users = table('users');
-    const limit = spec.limit !== null ? ` limit ${spec.limit}` : '';
-    const f = spec.filter;
-    switch (f.kind) {
-      case 'none':
-        return spec.mode === 'cursor'
-          ? {
-              text: `select ${USER_COLS} from ${users} where token(id) > token(?)${limit}`,
-              params: [spec.after],
-            }
-          : { text: `select ${USER_COLS} from ${users}${limit}`, params: [] };
-      case 'email':
-        return { text: `select ${USER_COLS} from ${users} where email = ?${limit}`, params: [f.value] };
-      case 'scoreBelow':
-        // Deliberately unindexed: a full scan, which is what R3 measures.
-        return {
-          text: `select ${USER_COLS} from ${users} where score < ?${limit} allow filtering`,
-          params: [f.value],
-        };
-      case 'range':
-        return {
-          text: `select ${USER_COLS} from ${users} where created_at >= ? and created_at <= ?${limit}`,
-          params: [f.from, f.to],
-        };
-      case 'id':
-        return { text: `select ${USER_COLS} from ${users} where id = ?`, params: [f.value] };
-      case 'ids':
-        return {
-          text: `select ${USER_COLS} from ${users} where id in (${f.values.map(() => '?').join(', ')})`,
-          params: f.values,
-        };
-      case 'idCap':
-        throw new Error('cassandra cannot run a capped full sort');
-    }
-  }
-
-  const writeCols = (t: SuiteTable): { names: string; marks: string } => {
-    const names = columnNames(t);
-    return { names: names.join(', '), marks: names.map(() => '?').join(', ') };
-  };
-
-  const rowValues = (t: SuiteTable, row: SuiteRow): unknown[] => columnNames(t).map((c) => row[c]);
-
+  const { cql } = createCql(table);
   return {
     support(f: Feature): Support {
       switch (f.kind) {
@@ -183,52 +103,16 @@ export function createCassandraSuite(getClient: () => cassandra.Client): SuiteAd
       // Nothing to do: the SAI indexes were created before the load.
     },
 
-    async bulkInsert(t, rows) {
-      if (rows.length === 0) return;
-      // likes and documents back only joins and JSON, which are N/A here.
-      if (t === 'likes' || t === 'documents' || t === 'w_docs') return;
-      const { names, marks } = writeCols(t);
-      // Bounded-concurrency single-partition writes. A multi-partition BATCH is
-      // the well-known Cassandra anti-pattern and trips the batch size limits.
-      await cassandra.concurrent.executeConcurrent(
-        getClient(),
-        `insert into ${table(t)} (${names}) values (${marks})`,
-        rows.map((r) => rowValues(t, r)),
-        { concurrencyLevel: LOAD_CONCURRENCY },
-      );
-    },
-
-    async insertOne(t, row) {
-      const { names, marks } = writeCols(t);
-      if (t === 'w_uk') {
-        const rs = await getClient().execute(
-          `insert into ${table(t)} (${names}) values (${marks}) if not exists`,
-          rowValues(t, row),
-          { prepare: true },
-        );
-        if (rs.first()?.get('[applied]') === false) throw new UniqueViolation('duplicate email');
-        return;
-      }
-      await getClient().execute(
-        `insert into ${table(t)} (${names}) values (${marks})`,
-        rowValues(t, row),
-        { prepare: true },
-      );
-    },
-
     isUniqueViolation: (err) => err instanceof UniqueViolation,
 
     async truncate(t) {
       await getClient().execute(`truncate ${table(t)}`);
     },
 
-    async run(q): Promise<RunOut> {
-      const { text, params } = cql(q);
-      const rs = await getClient().execute(text, params, { prepare: true });
-      if (q.kind === 'agg') return { rows: rs.rowLength > 0 ? 1 : 0, lastKey: null };
-      const rows = rs.rows;
-      return rows.length === 0 ? noRows : { rows: rows.length, lastKey: idOf(rows[rows.length - 1]) };
-    },
+    // Reads and writes are supplied per test by impl.ts, wired in by withImpl.
+    bulkInsert: () => Promise.reject(new Error(PROVIDED)),
+    insertOne: () => Promise.reject(new Error(PROVIDED)),
+    run: (): Promise<RunOut> => Promise.reject(new Error(PROVIDED)),
 
     async explain(q): Promise<ExplainOut> {
       // Cassandra has no EXPLAIN. Record the statement so the plan is at least auditable.

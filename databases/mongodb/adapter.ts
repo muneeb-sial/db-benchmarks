@@ -1,6 +1,8 @@
 import { MongoClient, type Db } from 'mongodb';
 import { Runtime } from '../../src/core/adapter.ts';
 import { createMongoSuite } from './suite.ts';
+import { createMongoImpl } from './impl.ts';
+import { withImpl } from '../../src/suite/with-impl.ts';
 import type { Adapter, ConnectOptions } from '../../src/types/adapter.type.ts';
 
 export function createAdapter(): Adapter {
@@ -17,7 +19,7 @@ export function createAdapter(): Adapter {
     displayName: 'MongoDB',
     // Verified on Node and Bun. Deno is unsupported repo-wide.
     supportedRuntimes: [Runtime.Node, Runtime.Bun],
-    suite: createMongoSuite(database),
+    suite: withImpl(createMongoSuite(database), (o) => createMongoImpl(database, o)),
 
     async connect(opts: ConnectOptions) {
       const auth = opts.user ? `${opts.user}:${opts.password}@` : '';

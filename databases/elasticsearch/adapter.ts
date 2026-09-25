@@ -1,6 +1,8 @@
 import { Client } from '@elastic/elasticsearch';
 import { Runtime } from '../../src/core/adapter.ts';
 import { createElasticsearchSuite } from './suite.ts';
+import { createElasticsearchImpl } from './impl.ts';
+import { withImpl } from '../../src/suite/with-impl.ts';
 import type { Adapter, ConnectOptions } from '../../src/types/adapter.type.ts';
 
 export function createAdapter(): Adapter {
@@ -15,7 +17,7 @@ export function createAdapter(): Adapter {
     engine: 'elasticsearch',
     displayName: 'Elasticsearch',
     supportedRuntimes: [Runtime.Node, Runtime.Bun],
-    suite: createElasticsearchSuite(db),
+    suite: withImpl(createElasticsearchSuite(db), (o) => createElasticsearchImpl(db, o)),
 
     async connect(opts: ConnectOptions) {
       client = new Client({

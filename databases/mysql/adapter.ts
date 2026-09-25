@@ -2,7 +2,9 @@ import mysql from 'mysql2/promise';
 import { Runtime } from '../../src/core/adapter.ts';
 import { DIALECTS } from '../../src/sql/dialect.ts';
 import { toRunOut } from '../../src/sql/queries.ts';
+import { createSqlImpl } from '../../src/sql/impl.ts';
 import { createSqlSuite } from '../../src/sql/suite.ts';
+import { withImpl } from '../../src/suite/with-impl.ts';
 import type { Adapter, ConnectOptions } from '../../src/types/adapter.type.ts';
 import type { SqlExecutor } from '../../src/types/sql-suite.type.ts';
 
@@ -63,7 +65,7 @@ export function createAdapter(): Adapter {
     engine: 'mysql',
     displayName: 'MySQL',
     supportedRuntimes: [Runtime.Node, Runtime.Bun],
-    suite: createSqlSuite(DIALECTS.mysql, executor),
+    suite: withImpl(createSqlSuite(DIALECTS.mysql, executor), (o) => createSqlImpl(DIALECTS.mysql, executor, o)),
 
     async connect(opts: ConnectOptions) {
       pool = mysql.createPool({
