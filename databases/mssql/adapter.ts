@@ -2,7 +2,9 @@ import sql from 'mssql';
 import { Runtime } from '../../src/core/adapter.ts';
 import { DIALECTS } from '../../src/sql/dialect.ts';
 import { toRunOut } from '../../src/sql/queries.ts';
+import { createSqlImpl } from '../../src/sql/impl.ts';
 import { createSqlSuite } from '../../src/sql/suite.ts';
+import { withImpl } from '../../src/suite/with-impl.ts';
 import type { Adapter, ConnectOptions } from '../../src/types/adapter.type.ts';
 import type { SqlExecutor } from '../../src/types/sql-suite.type.ts';
 
@@ -137,7 +139,7 @@ export function createAdapter(): Adapter {
     engine: 'mssql',
     displayName: 'SQL Server',
     supportedRuntimes: [Runtime.Node, Runtime.Bun],
-    suite: createSqlSuite(DIALECTS.mssql, executor),
+    suite: withImpl(createSqlSuite(DIALECTS.mssql, executor), (o) => createSqlImpl(DIALECTS.mssql, executor, o)),
 
     async connect(opts: ConnectOptions) {
       // The container starts with only the system databases. Create ours, and

@@ -2,6 +2,8 @@ import process from 'node:process';
 import cassandra from 'cassandra-driver';
 import { Runtime } from '../../src/core/adapter.ts';
 import { createCassandraSuite } from './suite.ts';
+import { createCassandraImpl } from './impl.ts';
+import { withImpl } from '../../src/suite/with-impl.ts';
 import type { Adapter, ConnectOptions } from '../../src/types/adapter.type.ts';
 
 const DATACENTER = 'datacenter1';
@@ -28,7 +30,7 @@ export function createAdapter(): Adapter {
     engine: 'cassandra',
     displayName: 'Cassandra',
     supportedRuntimes: [Runtime.Node, Runtime.Bun],
-    suite: createCassandraSuite(db),
+    suite: withImpl(createCassandraSuite(db), (o) => createCassandraImpl(db, o)),
 
     async connect(opts: ConnectOptions) {
       // Cassandra starts with no application keyspace. Create it over a

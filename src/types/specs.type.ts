@@ -1,4 +1,4 @@
-import type { ReadMode, Shape } from './config.type.ts';
+import type { DocShape, ReadMode, Shape } from './config.type.ts';
 import type { SuiteConfig } from './config.type.ts';
 import type { SuiteRow, SuiteTable } from './schema.type.ts';
 
@@ -107,7 +107,7 @@ export interface SuiteAdapter {
 }
 
 // The suite's tests, one method per test (docs/suite.md), grouped into ReadImpl and
-// WriteImpl. Only Postgres implements them so far (databases/postgres/impl.ts).
+// WriteImpl. Every SQL engine shares src/sql/impl.ts; wired in through src/suite/with-impl.ts.
 
 export interface WriteImpl {
   /** W1: single inserts, non-transactional, no unique-key check. */
@@ -141,4 +141,19 @@ export interface ReadImpl {
   r9(spec: TextSpec): Promise<RunOut>;
   /** R10: JSON filter on a top-level, nested and array field, without and with an index. */
   r10(spec: JsonSpec): Promise<RunOut>;
+}
+
+/** One engine's per-test implementation, built once the suite config is known. */
+export interface EngineImpl {
+  read: ReadImpl;
+  write: WriteImpl;
+}
+
+export interface ImplOptions {
+  /** `dataset.tablePrefix` from the suite config. */
+  prefix: string;
+  /** `reads.r10.docShape`, needed to render nested JSON filters. */
+  docShape: DocShape;
+  /** The whole suite config, for engines that derive more than the prefix from it. */
+  config: SuiteConfig;
 }
