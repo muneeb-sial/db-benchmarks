@@ -95,12 +95,21 @@ Elasticsearch has no transactions.
 - **Single machine.** Results come from one machine. Run it on yours before
   drawing conclusions.
 
+## Documentation
+
+| Doc | What's in it |
+| --- | --- |
+| [features.md](docs/features.md) | The suite's feature spec and test plan |
+| [docs/methodology.md](docs/methodology.md) | What is measured and why, plus caveats |
+| [docs/memory.md](docs/memory.md) | The memory trap and how limits are equalized |
+| [docs/engines.md](docs/engines.md) | Per-engine notes: Cassandra, SQL Server, Elasticsearch |
+
 ## Layout
 
 ```
 src/          the server, engines, k6 scripts, suite runner, UI, seed, config
 src/databases/  one docker-compose.yml per engine, plus the per-engine notes
-features.md          the original test spec
+docs/features.md      the original test spec
 results/             run output (gitignored)
 ```
 

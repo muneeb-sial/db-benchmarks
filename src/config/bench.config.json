@@ -1,6 +1,6 @@
 {
   "concurrency": [1, 2, 8, 32, 64],
-  "limits": ["10", "50", "100", "500", "1k"],
+  "limits": ["10", "50"],
   "shapes": ["simple", "single-join", "multi-join"],
   "readModes": ["limit", "offset", "cursor"],
 

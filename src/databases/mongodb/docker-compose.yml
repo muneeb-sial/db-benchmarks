@@ -26,11 +26,9 @@ services:
     mem_swappiness: 0
     cpus: ${DB_CPU_LIMIT:-4}
 
-    # A single-node replica set, NOT a standalone mongod. Multi-document
-    # transactions require a replica set; a standalone silently has none, so
-    # the like workload would report throughput for work that never happened
-    # atomically. No auth and no keyfile: this is a local benchmark fixture,
-    # and enabling auth on a replica set drags in keyfile provisioning.
+    # A single-node replica set, NOT a standalone mongod. No auth and no
+    # keyfile: this is a local benchmark fixture, and enabling auth on a
+    # replica set drags in keyfile provisioning.
     command:
       - --replSet
       - rs0
