@@ -1,0 +1,395 @@
+<!doctype html>
+<html lang="en" class="dark" style="color-scheme: dark">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>DB Bench Runner</title>
+    <script src="https://cdn.jsdelivr.net/npm/@tailwindcss/browser@4.1.11"></script>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600;700&display=swap" rel="stylesheet" />
+    <style type="text/tailwindcss">
+      /* Terminal theme: remap the palette the markup (and app.ts/suite.ts) already uses,
+         so the layout stays untouched. indigo -> Claude-orange accent, slate -> greys on black. */
+      @theme {
+        --font-sans: 'JetBrains Mono', 'Cascadia Code', Consolas, ui-monospace, monospace;
+        --font-mono: 'JetBrains Mono', 'Cascadia Code', Consolas, ui-monospace, monospace;
+
+        --color-white: #f2f2f2;
+        --color-black: #000000;
+        --color-slate-100: #e6e6e6;
+        --color-slate-200: #cfcfcf;
+        --color-slate-300: #b0b0b0;
+        --color-slate-400: #8a8a8a;
+        --color-slate-500: #666666;
+        --color-slate-600: #3d3d3d;
+        --color-slate-700: #2c2c2c;
+        --color-slate-800: #141414;
+        --color-slate-900: #000000;
+        --color-slate-950: #000000;
+
+        --color-indigo-200: #f6c4b0;
+        --color-indigo-300: #eba185;
+        --color-indigo-400: #e0896a;
+        --color-indigo-500: #d77757;
+        --color-indigo-600: #d77757;
+
+        --color-emerald-100: #d8f5dc;
+        --color-emerald-300: #7ad48c;
+        --color-emerald-400: #5fc874;
+        --color-emerald-500: #4eba65;
+        --color-emerald-600: #4eba65;
+
+        --color-amber-300: #ffc66d;
+        --color-amber-400: #ffb347;
+        --color-amber-500: #ffb347;
+        --color-rose-400: #ff6b80;
+      }
+      .s-input {
+        @apply w-full rounded-lg border border-slate-700 bg-slate-800 px-2.5 py-1.5 text-sm text-slate-100 placeholder-slate-500 focus:border-indigo-500 focus:outline-none focus:ring-2 focus:ring-indigo-500/30;
+      }
+    </style>
+    <style>
+      /* Unlayered, so these win over Tailwind utilities. */
+      :root { --accent: #d77757; --line: #2e2e2e; --line-strong: #4a4a4a; --ok: #4eba65; }
+      html, body { background: #000; }
+      body { font-size: 13px; font-feature-settings: 'calt' 0; }
+      ::selection { background: var(--accent); color: #000; }
+
+      /* square corners everywhere; cards get a slight curve like a ╭─╮ box */
+      [class*='rounded'] { border-radius: 0; }
+      .rounded-xl { border-radius: 6px; }
+      .rounded-b-xl { border-radius: 0 0 6px 6px; }
+
+      /* box lines */
+      .border-slate-800, .divide-slate-800 > * + * { border-color: var(--line); }
+      .border-slate-700 { border-color: var(--line-strong); }
+      header { border-bottom-color: var(--accent) !important; }
+
+      /* prompt glyphs */
+      header h1::before { content: '✻ '; color: var(--accent); }
+      h2::before { content: '› '; color: var(--accent); }
+      h2.uppercase { text-transform: lowercase; letter-spacing: 0; color: var(--color-slate-200, #cfcfcf); }
+      /* accordions (wired in app.ts): ▾ open, ▸ folded; header row loses its gap when folded */
+      h2.fold { cursor: pointer; user-select: none; }
+      h2.fold:hover, h2.fold:focus-visible { color: var(--accent); outline: none; }
+      h2.fold::before { content: '▾ '; }
+      .collapsed h2.fold::before { content: '▸ '; }
+      .collapsed > :not(:first-child) { display: none; }
+      .collapsed > :first-child { margin-bottom: 0; }
+      #profile::before { content: '['; color: #666; }
+      #profile::after { content: ']'; color: #666; }
+
+      /* inputs: black wells with a dim border, accent on focus, no glow */
+      input:not([type='checkbox']), select, textarea, .s-input { background: #000; caret-color: var(--accent); }
+      input:focus, select:focus, textarea:focus { box-shadow: none !important; border-color: var(--accent) !important; }
+      select option { background: #000; color: #e6e6e6; }
+
+      /* buttons: outlined, inverted on hover — like a highlighted terminal choice */
+      button.bg-indigo-600, button.bg-emerald-600 {
+        background: transparent; border: 1px solid currentColor; font-weight: 600;
+      }
+      button.bg-indigo-600 { color: var(--accent); }
+      button.bg-emerald-600 { color: var(--ok); }
+      button.bg-indigo-600:not(:disabled):hover { background: var(--accent); color: #000; }
+      button.bg-emerald-600:not(:disabled):hover { background: var(--ok); color: #000; }
+      button.bg-indigo-600::before, button.bg-emerald-600::before { content: '> '; }
+      button:not(:disabled):hover { cursor: pointer; }
+      button:disabled { cursor: not-allowed; }
+      #init.bg-slate-700 { background: transparent; border: 1px solid var(--line-strong); }
+      #init.bg-slate-700:not(:disabled):hover { border-color: var(--accent); color: var(--accent); }
+
+      /* mode tabs: selected tab is inverted */
+      [id^='tab-'].bg-slate-700 { background: var(--accent); color: #000; font-weight: 600; }
+
+      /* output pane reads like the terminal itself, with a blinking block cursor */
+      #output { background: #000; color: #e6e6e6; }
+      #output::after { content: '█'; color: var(--accent); animation: blink 1.1s steps(1) infinite; }
+      @keyframes blink { 50% { opacity: 0; } }
+
+      /* progress bar: flat block fill */
+      #s-progress-bar { background: var(--ok); }
+
+      thead th { text-transform: lowercase; font-weight: 500; }
+      thead.bg-slate-800, thead.bg-slate-800\/50 { background: #0d0d0d; }
+      tbody tr:hover { background: #0f0f0f; }
+
+      /* thin terminal scrollbars */
+      * { scrollbar-width: thin; scrollbar-color: #3d3d3d #000; }
+      ::-webkit-scrollbar { width: 8px; height: 8px; }
+      ::-webkit-scrollbar-track { background: #000; }
+      ::-webkit-scrollbar-thumb { background: #3d3d3d; }
+      ::-webkit-scrollbar-thumb:hover { background: var(--accent); }
+
+      details summary::marker { color: var(--accent); }
+
+      /*
+       * Wide screens (lg+): an app-style layout, same as /results. The page
+       * itself never scrolls: the header stays put, and the controls column
+       * and the output column each scroll on their own, edge to edge. The
+       * Response window grows to fill the output column's height.
+       */
+      @media (min-width: 1024px) {
+        html, body { height: 100%; overflow: hidden; }
+        body { display: flex; flex-direction: column; min-height: 0; }
+        body > header { flex: none; }
+        body > main { flex: 1; min-height: 0; align-items: stretch; }
+        main > .col { min-height: 0; overflow-y: auto; overflow-x: hidden; padding-right: 4px; }
+        #output { height: max(420px, calc(100vh - 380px)); }
+      }
+
+      /* stacked layout (below lg): never wider than the screen; shorter output pane */
+      html, body { overflow-x: hidden; }
+      main select, main input, main textarea, main pre, main code { max-width: 100%; min-width: 0; }
+      @media (max-width: 1023px) {
+        #output { height: min(420px, 55vh); }
+      }
+      /* phones: tighter boxes, and 16px form text so iOS doesn't zoom in on focus */
+      @media (max-width: 639px) {
+        header > div { padding: 10px 12px; }
+        header p { display: none; }
+        main { padding: 12px; gap: 12px; }
+        main .rounded-xl.p-4 { padding: 12px; }
+        main .rounded-xl.p-3 { padding: 10px; }
+        #single-metrics { gap: 8px; }
+        #single-metrics .text-2xl { font-size: 1.25rem; }
+        #s-tests { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+        input:not([type='checkbox']), select, textarea, .s-input { font-size: 16px; }
+        #output { padding: 12px; }
+        table th, table td { padding-left: 8px !important; padding-right: 8px !important; }
+        table th, table td.text-right { white-space: nowrap; }
+      }
+    </style>
+  </head>
+  <body class="min-h-screen bg-slate-950 text-slate-100 antialiased">
+    <header class="border-b border-slate-800 bg-slate-900/80 backdrop-blur">
+      <div class="flex items-center justify-between gap-4 px-4 py-3">
+        <div>
+          <h1 class="text-lg font-semibold">DB Bench Runner</h1>
+          <p class="text-xs text-slate-400">Pick a database and a test, then run one request or a k6 load run.</p>
+        </div>
+        <div class="flex items-center gap-2">
+          <span id="profile" class="rounded-full bg-slate-800 px-3 py-1 text-xs font-medium text-slate-300">profile …</span>
+          <a href="/results" class="rounded border border-slate-700 px-2.5 py-1 text-xs text-slate-300 hover:border-indigo-500 hover:text-indigo-300">results →</a>
+        </div>
+      </div>
+    </header>
+
+    <main class="grid grid-cols-1 gap-4 px-4 py-4 lg:grid-cols-[380px_minmax(0,1fr)]">
+      <!-- left: controls -->
+      <section class="col min-w-0 space-y-4">
+        <div class="grid grid-cols-2 gap-1 rounded-xl border border-slate-800 bg-slate-900 p-1 text-sm font-medium">
+          <button id="tab-single" class="rounded-lg bg-slate-700 px-3 py-1.5 text-white">Single test</button>
+          <button id="tab-suite" class="rounded-lg px-3 py-1.5 text-slate-400 hover:text-slate-200">Suite (many tests)</button>
+        </div>
+
+        <!-- suite mode -->
+        <div id="panel-suite" class="hidden space-y-4">
+          <div class="rounded-xl border border-slate-800 bg-slate-900 p-4">
+            <h2 class="mb-2 text-sm font-semibold uppercase tracking-wide text-slate-400">Databases</h2>
+            <div id="s-dbs" class="grid grid-cols-2 gap-1.5 text-sm"></div>
+          </div>
+
+          <div class="rounded-xl border border-slate-800 bg-slate-900 p-4">
+            <div class="mb-2 flex items-center justify-between">
+              <h2 class="text-sm font-semibold uppercase tracking-wide text-slate-400">Tests</h2>
+              <div class="flex gap-1 text-xs">
+                <button data-pick="all" class="rounded px-1.5 py-0.5 text-slate-400 hover:bg-slate-800 hover:text-slate-200">all</button>
+                <button data-pick="reads" class="rounded px-1.5 py-0.5 text-slate-400 hover:bg-slate-800 hover:text-slate-200">reads</button>
+                <button data-pick="writes" class="rounded px-1.5 py-0.5 text-slate-400 hover:bg-slate-800 hover:text-slate-200">writes</button>
+                <button data-pick="none" class="rounded px-1.5 py-0.5 text-slate-400 hover:bg-slate-800 hover:text-slate-200">none</button>
+              </div>
+            </div>
+            <div id="s-tests" class="grid grid-cols-3 gap-1.5 text-sm"></div>
+          </div>
+
+          <div class="rounded-xl border border-slate-800 bg-slate-900 p-4">
+            <div class="mb-2 flex items-center justify-between">
+              <h2 class="text-sm font-semibold uppercase tracking-wide text-slate-400">Matrix</h2>
+              <button id="s-defaults" class="rounded px-1.5 py-0.5 text-xs text-slate-400 hover:bg-slate-800 hover:text-slate-200" title="Reset to bench.config.json">reset to config</button>
+            </div>
+            <div class="grid grid-cols-2 gap-3">
+              <label class="col-span-2 block text-xs font-medium text-slate-400">Concurrency levels (VUs)
+                <input id="s-concurrency" class="s-input mt-1" placeholder="1,2,8,32,64" /></label>
+              <label class="col-span-2 block text-xs font-medium text-slate-400">Limits
+                <input id="s-limits" class="s-input mt-1" placeholder="100,1k" /></label>
+              <div class="text-xs font-medium text-slate-400">Shapes<div id="s-shapes" class="mt-1 space-y-1 text-sm text-slate-200"></div></div>
+              <div class="text-xs font-medium text-slate-400">Read modes<div id="s-modes" class="mt-1 space-y-1 text-sm text-slate-200"></div></div>
+              <label class="block text-xs font-medium text-slate-400">Duration (s)
+                <input id="s-duration" type="number" min="1" class="s-input mt-1" /></label>
+              <label class="block text-xs font-medium text-slate-400">Warmup (s)
+                <input id="s-warmup" type="number" min="0" class="s-input mt-1" /></label>
+            </div>
+            <div class="mt-3 space-y-1.5 text-sm text-slate-200">
+              <label class="flex items-center gap-2"><input id="s-init" type="checkbox" checked class="accent-indigo-500" /> Reinitialize each database (fresh container + seed)</label>
+              <label class="flex items-center gap-2 pl-5" title="name-prefix, fulltext, json-top, json-nested, json-array (where the engine supports them). No-index R9/R10 cells drop theirs for the moment and the suite rebuilds it."><input id="s-indexes" type="checkbox" checked class="accent-indigo-500" /> …and build search indexes at initialize</label>
+              <label class="flex items-center gap-2"><input id="s-verbose" type="checkbox" class="accent-indigo-500" /> Verbose (stream raw k6 output)</label>
+            </div>
+            <details class="mt-3">
+              <summary class="cursor-pointer text-xs text-slate-400 hover:text-slate-200">Advanced: JSON overrides (merged over bench.config.json)</summary>
+              <label class="mt-2 flex items-center gap-2 text-sm text-slate-200">
+                <input id="s-adv-on" type="checkbox" class="accent-indigo-500" /> Apply these overrides to the run
+              </label>
+              <p class="mt-1.5 text-[11px] leading-relaxed text-slate-500">
+                Pre-filled with the current values, so you can see what's editable. Sizes take numbers or strings like
+                <code>"20k"</code>. Not editable here: the matrix fields above (concurrency, limits, shapes, modes,
+                duration, warmup) are set by the form; <code>dataset</code> comes from the seed; <code>reads.r3</code>,
+                <code>r7</code>, <code>r8</code>, <code>r10</code> are read by the server, so change them in
+                bench.config.json and restart it.
+              </p>
+              <textarea id="s-advanced" rows="14" spellcheck="false" class="s-input mt-2 font-mono text-xs"></textarea>
+              <div class="mt-1 flex items-center justify-between text-[11px]">
+                <span id="s-adv-state" class="text-slate-500">not applied</span>
+                <button id="s-adv-reset" type="button" class="rounded px-1.5 py-0.5 text-slate-400 hover:bg-slate-800 hover:text-slate-200">reset to config values</button>
+              </div>
+            </details>
+            <p id="s-plan" class="mt-3 rounded-lg border border-slate-800 bg-slate-950 px-3 py-2 text-xs text-slate-300">…</p>
+            <div class="mt-3 flex gap-2">
+              <button id="s-run" class="flex-1 rounded-lg bg-emerald-600 px-4 py-2 text-sm font-semibold text-white hover:bg-emerald-500 disabled:opacity-50">Run suite</button>
+              <button id="s-stop" class="rounded-lg border border-slate-700 px-4 py-2 text-sm font-medium text-slate-300 hover:bg-slate-800 disabled:opacity-50" disabled>Stop</button>
+            </div>
+          </div>
+        </div>
+
+        <!-- single-test mode -->
+        <div id="panel-single" class="space-y-4">
+        <div class="rounded-xl border border-slate-800 bg-slate-900 p-4">
+          <h2 class="mb-3 text-sm font-semibold uppercase tracking-wide text-slate-400">Database</h2>
+          <select id="db" class="w-full rounded-lg border border-slate-700 bg-slate-800 px-3 py-2 text-sm text-slate-100 focus:border-indigo-500 focus:outline-none focus:ring-2 focus:ring-indigo-500/30"></select>
+          <div class="mt-3 flex items-center justify-between gap-2">
+            <span id="db-status" class="rounded-full bg-slate-800 px-2.5 py-1 text-xs font-medium text-slate-300">unknown</span>
+            <button id="init" class="rounded-lg bg-slate-700 px-3 py-1.5 text-xs font-medium text-white hover:bg-slate-600 disabled:opacity-50" title="Recreates the container (all data deleted), then loads the seed">Reinitialize (fresh container + seed)</button>
+          </div>
+          <p id="db-detail" class="mt-2 text-xs text-slate-400"></p>
+        </div>
+
+        <div class="rounded-xl border border-slate-800 bg-slate-900 p-4">
+          <h2 class="mb-3 text-sm font-semibold uppercase tracking-wide text-slate-400">Test</h2>
+          <select id="test" class="w-full rounded-lg border border-slate-700 bg-slate-800 px-3 py-2 text-sm text-slate-100 focus:border-indigo-500 focus:outline-none focus:ring-2 focus:ring-indigo-500/30"></select>
+          <p id="test-help" class="mt-2 text-xs text-slate-400"></p>
+          <div id="fields" class="mt-3 grid grid-cols-2 gap-3"></div>
+          <div id="coverage" class="mt-3 hidden rounded-lg border border-amber-500/30 bg-amber-500/10 px-3 py-2 text-xs text-amber-300"></div>
+          <code id="preview" class="mt-3 block break-all rounded-lg border border-slate-800 bg-slate-950 px-3 py-2 text-xs text-slate-300"></code>
+          <button id="execute" class="mt-3 w-full rounded-lg bg-indigo-600 px-4 py-2 text-sm font-semibold text-white hover:bg-indigo-500 disabled:opacity-50">Execute once</button>
+        </div>
+
+        <div class="rounded-xl border border-slate-800 bg-slate-900 p-4">
+          <h2 class="mb-3 text-sm font-semibold uppercase tracking-wide text-slate-400">k6 load run</h2>
+          <div id="k6-fields" class="grid grid-cols-2 gap-3"></div>
+          <div class="mt-3 flex gap-2">
+            <button id="k6-run" class="flex-1 rounded-lg bg-emerald-600 px-4 py-2 text-sm font-semibold text-white hover:bg-emerald-500 disabled:opacity-50">Run k6</button>
+            <button id="k6-stop" class="rounded-lg border border-slate-700 px-4 py-2 text-sm font-medium text-slate-300 hover:bg-slate-800 disabled:opacity-50" disabled>Stop</button>
+          </div>
+        </div>
+
+        <div class="rounded-xl border border-slate-800 bg-slate-900 p-4">
+          <h2 class="mb-3 text-sm font-semibold uppercase tracking-wide text-slate-400">Maintenance</h2>
+          <div class="grid grid-cols-[1fr_auto_auto] items-center gap-2">
+            <select id="index-kind" class="rounded-lg border border-slate-700 bg-slate-800 px-2 py-1.5 text-xs text-slate-100"></select>
+            <button id="index-create" class="rounded-lg border border-slate-700 px-2.5 py-1.5 text-xs text-slate-300 hover:bg-slate-800">Build index</button>
+            <button id="index-drop" class="rounded-lg border border-slate-700 px-2.5 py-1.5 text-xs text-slate-300 hover:bg-slate-800">Drop</button>
+            <select id="reset-table" class="rounded-lg border border-slate-700 bg-slate-800 px-2 py-1.5 text-xs text-slate-100"></select>
+            <button id="reset" class="col-span-2 rounded-lg border border-slate-700 px-2.5 py-1.5 text-xs text-slate-300 hover:bg-slate-800">Truncate table</button>
+          </div>
+          <button id="verify" class="mt-2 w-full rounded-lg border border-slate-700 px-2.5 py-1.5 text-xs text-slate-300 hover:bg-slate-800">Verify like_count integrity</button>
+        </div>
+        </div>
+      </section>
+
+      <!-- right: output -->
+      <section class="col min-w-0 space-y-4">
+        <div id="s-progress" class="hidden rounded-xl border border-slate-800 bg-slate-900 p-4">
+          <div class="flex items-center justify-between text-sm">
+            <span id="s-progress-label" class="font-medium">Suite</span>
+            <span id="s-progress-count" class="tabular-nums text-slate-400">0 / 0</span>
+          </div>
+          <div class="mt-2 h-2 overflow-hidden rounded-full bg-slate-800">
+            <div id="s-progress-bar" class="h-full w-0 rounded-full bg-emerald-500 transition-all"></div>
+          </div>
+          <div class="mt-2 flex gap-4 text-xs text-slate-400">
+            <span>ok <b id="s-ok" class="text-emerald-400">0</b></span>
+            <span>N/A <b id="s-na" class="text-amber-400">0</b></span>
+            <span>failed <b id="s-failed" class="text-rose-400">0</b></span>
+            <a id="s-summary" class="ml-auto hidden text-indigo-300 hover:text-indigo-200" target="_blank">summary.md</a>
+            <a id="s-open" class="hidden text-indigo-300 hover:text-indigo-200" target="_blank">open in results →</a>
+          </div>
+        </div>
+
+        <div id="single-metrics" class="grid grid-cols-2 gap-3 sm:grid-cols-4">
+          <div class="rounded-xl border border-slate-800 bg-slate-900 p-3">
+            <div class="text-xs text-slate-400">HTTP status</div>
+            <div id="m-status" class="mt-1 text-2xl font-semibold tabular-nums">–</div>
+          </div>
+          <div class="rounded-xl border border-slate-800 bg-slate-900 p-3">
+            <div class="text-xs text-slate-400">Rows</div>
+            <div id="m-rows" class="mt-1 text-2xl font-semibold tabular-nums">–</div>
+          </div>
+          <div class="rounded-xl border border-slate-800 bg-slate-900 p-3">
+            <div class="text-xs text-slate-400">DB time (server)</div>
+            <div id="m-db" class="mt-1 text-2xl font-semibold tabular-nums text-indigo-300">–</div>
+          </div>
+          <div class="rounded-xl border border-slate-800 bg-slate-900 p-3">
+            <div class="text-xs text-slate-400">Round trip (browser)</div>
+            <div id="m-rtt" class="mt-1 text-2xl font-semibold tabular-nums">–</div>
+          </div>
+        </div>
+
+        <div id="output-card" class="rounded-xl border border-slate-800 bg-slate-900">
+          <div class="flex items-center justify-between border-b border-slate-800 px-4 py-2">
+            <h2 id="out-title" class="text-sm font-semibold">Response</h2>
+            <button id="clear" class="text-xs text-slate-400 hover:text-slate-200">Clear</button>
+          </div>
+          <pre id="output" class="h-[420px] overflow-auto whitespace-pre-wrap break-all rounded-b-xl bg-black/50 p-4 font-mono text-xs leading-relaxed text-emerald-100">Ready.</pre>
+        </div>
+
+        <div id="s-results-card" class="hidden rounded-xl border border-slate-800 bg-slate-900">
+          <div class="flex flex-wrap items-center justify-between gap-2 border-b border-slate-800 px-4 py-2">
+            <span class="text-sm font-semibold">Suite results</span>
+            <input id="s-filter" placeholder="filter, e.g. postgres r1" class="s-input w-full py-1 text-xs sm:w-56" />
+          </div>
+          <div class="max-h-[480px] overflow-auto">
+            <table class="w-full text-left text-xs">
+              <thead class="sticky top-0 bg-slate-800 text-slate-400">
+                <tr>
+                  <th class="px-3 py-2 font-medium">DB</th>
+                  <th class="px-3 py-2 font-medium">Cell</th>
+                  <th class="px-3 py-2 text-right font-medium">VUs</th>
+                  <th class="px-3 py-2 text-right font-medium">req/s</th>
+                  <th class="px-3 py-2 text-right font-medium">http p50</th>
+                  <th class="px-3 py-2 text-right font-medium">http p95</th>
+                  <th class="px-3 py-2 text-right font-medium">http p99</th>
+                  <th class="px-3 py-2 text-right font-medium">db p50</th>
+                  <th class="px-3 py-2 text-right font-medium">db p95</th>
+                  <th class="px-3 py-2 text-right font-medium">rows</th>
+                  <th class="px-3 py-2 text-right font-medium">err</th>
+                </tr>
+              </thead>
+              <tbody id="s-results" class="divide-y divide-slate-800 text-slate-300"></tbody>
+            </table>
+          </div>
+        </div>
+
+        <div id="history-card" class="rounded-xl border border-slate-800 bg-slate-900">
+          <div class="border-b border-slate-800 px-4 py-2 text-sm font-semibold">History</div>
+          <div class="overflow-x-auto">
+            <table class="w-full text-left text-xs">
+              <thead class="bg-slate-800/50 text-slate-400">
+                <tr>
+                  <th class="px-4 py-2 font-medium">Time</th>
+                  <th class="px-4 py-2 font-medium">Request</th>
+                  <th class="px-4 py-2 text-right font-medium">Status</th>
+                  <th class="px-4 py-2 text-right font-medium">Rows</th>
+                  <th class="px-4 py-2 text-right font-medium">DB ms</th>
+                  <th class="px-4 py-2 text-right font-medium">RTT ms</th>
+                </tr>
+              </thead>
+              <tbody id="history" class="divide-y divide-slate-800 text-slate-300"></tbody>
+            </table>
+          </div>
+        </div>
+      </section>
+    </main>
+
+    <script type="module" src="./app.ts"></script>
+  </body>
+</html>
