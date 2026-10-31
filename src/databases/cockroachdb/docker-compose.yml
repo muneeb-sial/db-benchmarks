@@ -1,0 +1,44 @@
+name: bench-cockroachdb
+
+services:
+  cockroachdb:
+    image: cockroachdb/cockroach:v24.2.3
+
+    # ------------------------------------------------------------------
+    # MEMORY BUDGET  (default: 4 GiB)
+    #
+    #   UP:    DB_MEM_LIMIT=8g docker compose up -d
+    #   DOWN:  DB_MEM_LIMIT=2g docker compose up -d
+    #
+    # ...or use a .env file beside this compose file:
+    #   DB_MEM_LIMIT=8g
+    #
+    # Unlike Postgres, MySQL and MongoDB, CockroachDB accepts its cache as a
+    # FRACTION, and the percentage form IS cgroup-aware -- so .25 tracks
+    # DB_MEM_LIMIT automatically and there is no second knob to keep in sync.
+    # The defaults (128MB cache) are far too small to be representative.
+    # ------------------------------------------------------------------
+    mem_limit: ${DB_MEM_LIMIT:-4g}
+    memswap_limit: ${DB_MEM_LIMIT:-4g}
+    mem_swappiness: 0
+    cpus: ${DB_CPU_LIMIT:-4}
+
+    command:
+      - start-single-node
+      - --insecure
+      - --cache=${CRDB_CACHE:-.25}
+      - --max-sql-memory=${CRDB_MAX_SQL_MEMORY:-.25}
+
+    ports:
+      # 26257 rather than 5432 so CockroachDB and Postgres can run side by side.
+      - "26257:26257"
+      - "8080:8080" # admin UI, handy when diagnosing retry storms
+
+    healthcheck:
+      test: ["CMD", "cockroach", "sql", "--insecure", "-e", "select 1"]
+      interval: 3s
+      timeout: 5s
+      retries: 30
+      start_period: 10s
+
+    # No volume, and never tmpfs: tmpfs pages count against mem_limit.

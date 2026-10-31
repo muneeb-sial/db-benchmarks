@@ -1,0 +1,67 @@
+name: bench-postgres
+
+services:
+  postgres:
+    image: postgres:16.3
+
+    # ------------------------------------------------------------------
+    # MEMORY BUDGET  (default: 4 GiB)
+    #
+    # Change it WITHOUT editing this file:
+    #
+    #   UP:    DB_MEM_LIMIT=8g PG_SHARED_BUFFERS=2GB PG_EFFECTIVE_CACHE=6GB \
+    #            docker compose up -d
+    #   DOWN:  DB_MEM_LIMIT=2g PG_SHARED_BUFFERS=512MB PG_EFFECTIVE_CACHE=1536MB \
+    #            docker compose up -d
+    #
+    # ...or drop a .env file next to this compose file:
+    #   DB_MEM_LIMIT=8g
+    #   PG_SHARED_BUFFERS=2GB
+    #   PG_EFFECTIVE_CACHE=6GB
+    #
+    # Keep the ratios: shared_buffers ~25% of the limit,
+    # effective_cache_size ~75%. Compose cannot do arithmetic, so these move
+    # by hand -- but they MUST move together (see below).
+    # ------------------------------------------------------------------
+    mem_limit: ${DB_MEM_LIMIT:-4g}
+    # Without this, Docker grants swap EQUAL to the memory limit, so a "4g"
+    # container can quietly use 4g RAM + 4g swap and the cap never binds.
+    memswap_limit: ${DB_MEM_LIMIT:-4g}
+    mem_swappiness: 0
+    cpus: ${DB_CPU_LIMIT:-4}
+
+    environment:
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_DB: benchmark
+
+    # Postgres does NOT read the cgroup limit. shared_buffers defaults to a
+    # hardcoded 128MB no matter how large the container is, and
+    # effective_cache_size defaults to 4GB -- a planner lie about page cache
+    # that does not exist under a 4g cap. Leaving these at their defaults while
+    # MongoDB sizes itself to ~1.5GB is how you accidentally benchmark cache
+    # size instead of the database.
+    command:
+      - postgres
+      - -c
+      - shared_buffers=${PG_SHARED_BUFFERS:-1GB}
+      - -c
+      - effective_cache_size=${PG_EFFECTIVE_CACHE:-3GB}
+      - -c
+      - work_mem=${PG_WORK_MEM:-16MB}
+      - -c
+      - max_connections=${PG_MAX_CONNECTIONS:-200}
+
+    ports:
+      - "5432:5432"
+
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d benchmark"]
+      interval: 3s
+      timeout: 5s
+      retries: 20
+
+    # No volume on purpose: the data directory lives in the container's
+    # writable layer, so `docker compose down` leaves a clean slate for the
+    # next run. Do NOT mount it as tmpfs -- tmpfs pages count against
+    # mem_limit, which would both distort the cache budget and turn this into
+    # a RAM benchmark rather than a storage one.

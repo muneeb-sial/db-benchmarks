@@ -1,0 +1,49 @@
+name: bench-cassandra
+
+services:
+  cassandra:
+    image: cassandra:5.0
+
+    # ------------------------------------------------------------------
+    # MEMORY BUDGET  (default: 4 GiB)
+    #
+    #   UP:    DB_MEM_LIMIT=8g CASSANDRA_HEAP=2G CASSANDRA_HEAP_NEW=512M docker compose up -d --wait
+    #   DOWN:  DB_MEM_LIMIT=2g CASSANDRA_HEAP=512M CASSANDRA_HEAP_NEW=128M docker compose up -d --wait
+    #
+    # ...or use a .env file beside this compose file:
+    #   DB_MEM_LIMIT=8g
+    #   CASSANDRA_HEAP=2G
+    #   CASSANDRA_HEAP_NEW=512M
+    #
+    # Cassandra's heap is only part of its memory: memtables, bloom filters and
+    # index structures live off-heap, and the OS page cache does the read
+    # caching. Keep the heap at roughly 25% of DB_MEM_LIMIT and leave the rest
+    # for those.
+    # ------------------------------------------------------------------
+    mem_limit: ${DB_MEM_LIMIT:-4g}
+    memswap_limit: ${DB_MEM_LIMIT:-4g}
+    mem_swappiness: 0
+    cpus: ${DB_CPU_LIMIT:-4}
+
+    environment:
+      CASSANDRA_CLUSTER_NAME: bench
+      CASSANDRA_DC: datacenter1
+      # REQUIRED. cassandra-env.sh derives the default heap from /proc/meminfo,
+      # i.e. the HOST's RAM, not the cgroup limit. On a big host that yields a
+      # heap larger than the container allows and the JVM is OOM-killed. Both
+      # variables must be set together or the script rejects them.
+      MAX_HEAP_SIZE: ${CASSANDRA_HEAP:-1G}
+      HEAP_NEWSIZE: ${CASSANDRA_HEAP_NEW:-256M}
+
+    ports:
+      - "9042:9042"
+
+    healthcheck:
+      # Cassandra takes a minute or more to come up.
+      test: ["CMD-SHELL", "cqlsh -e 'describe keyspaces' localhost 9042 >/dev/null 2>&1 || exit 1"]
+      interval: 10s
+      timeout: 10s
+      retries: 30
+      start_period: 60s
+
+    # No volume, and never tmpfs: tmpfs pages count against mem_limit.

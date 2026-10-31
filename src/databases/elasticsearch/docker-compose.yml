@@ -1,0 +1,44 @@
+name: bench-elasticsearch
+
+services:
+  elasticsearch:
+    image: docker.elastic.co/elasticsearch/elasticsearch:8.15.3
+
+    # ------------------------------------------------------------------
+    # MEMORY BUDGET  (default: 4 GiB)
+    #
+    #   UP:    DB_MEM_LIMIT=8g ES_HEAP=4g docker compose up -d --wait
+    #   DOWN:  DB_MEM_LIMIT=2g ES_HEAP=1g docker compose up -d --wait
+    #
+    # Elasticsearch splits memory between the JVM heap and the OS page cache
+    # (which Lucene relies on for segment reads). Elastic's guidance is a heap
+    # of at most 50% of RAM, so ES_HEAP moves with DB_MEM_LIMIT at ~50% --
+    # set both together. -Xms = -Xmx so the heap never resizes mid-run.
+    # ------------------------------------------------------------------
+    mem_limit: ${DB_MEM_LIMIT:-4g}
+    # Without this Docker grants swap equal to the limit and the cap never binds.
+    memswap_limit: ${DB_MEM_LIMIT:-4g}
+    mem_swappiness: 0
+    cpus: ${DB_CPU_LIMIT:-4}
+
+    environment:
+      discovery.type: single-node
+      # Local benchmark fixture: no TLS or auth, plain http://localhost:9200.
+      xpack.security.enabled: "false"
+      ES_JAVA_OPTS: "-Xms${ES_HEAP:-2g} -Xmx${ES_HEAP:-2g}"
+      bootstrap.memory_lock: "true"
+
+    ulimits:
+      memlock: { soft: -1, hard: -1 }
+      nofile: { soft: 65536, hard: 65536 }
+
+    ports:
+      - "9200:9200"
+
+    healthcheck:
+      test: ["CMD-SHELL", "curl -fs 'http://localhost:9200/_cluster/health?wait_for_status=yellow&timeout=5s' || exit 1"]
+      interval: 5s
+      timeout: 10s
+      retries: 30
+
+    # No volume on purpose: `docker compose down` leaves a clean slate.
