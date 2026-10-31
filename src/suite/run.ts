@@ -1,273 +1,337 @@
 /**
- * Runs the suite against one engine: seed, then execute every cell at every
- * concurrency level, capturing EXPLAIN and index build costs on the way.
+ * Runs a suite: for each database, a fresh container and seed (optional), then
+ * one k6 process per cell per concurrency level, against this server. Every
+ * step is reported through `emit`, which POST /api/suite streams as NDJSON.
+ *
+ * Results land in results/<run-id>/: one k6 summary JSON per run, plus
+ * run.json (request + resolved config), outcomes.json and summary.md.
  */
 
-import { median, summarize } from '../core/stats.ts';
-import { docRow, likeRow, makePlan, postRow, userRow } from './data.ts';
-import { queryKey } from './results.ts';
-import { runFixed, runTimed, runTraversal } from './runner.ts';
-import { buildCells } from './tests.ts';
-import type { DataPlan } from '../types/data.type.ts';
-import type { CellStatus, IndexBuild, SuiteCellResult, SuiteEngineResult, TraversalResult } from '../types/results.type.ts';
-import type { Measure } from '../types/runner.type.ts';
-import type { SuiteRow, SuiteTable } from '../types/schema.type.ts';
-import type { ExplainOut, IndexKind } from '../types/specs.type.ts';
-import type { TestCell } from '../types/tests.type.ts';
-import type { SuiteRunOptions } from '../types/run.type.ts';
+import { mkdir } from 'node:fs/promises';
+import { resolve } from 'node:path';
+import { loadConfig, type ServerConfig } from '../config/config.ts';
+import { PATHS } from '../config/paths.ts';
+import { BadParams, HttpError } from '../http/errors.ts';
+import { findK6, K6_MISSING } from '../k6/path.ts';
+import { coverage } from '../http/ops.ts';
+import { readManifest } from '../seed/manifest.ts';
+import type { Engine } from '../engine/engine.ts';
+import { DATABASES, engineFor, engineInfo } from '../engines/registry.ts';
+import { dbState, initialize, ready, setIndex } from '../databases/state.ts';
+import type { Compact, PlanEvent, SuiteEvent } from './events.ts';
+import { ALL_TESTS, buildCells, type Cell } from './matrix.ts';
 
-const message = (err: unknown): string => (err instanceof Error ? err.message : String(err));
-
-export function describeCell(c: TestCell): string {
-  const parts: string[] = [c.id];
-  if (c.shape) parts.push(c.shape);
-  if (c.mode) parts.push(c.mode);
-  if (c.limit !== null) parts.push(String(c.limit));
-  if (c.variant) parts.push(c.variant);
-  return parts.join(' / ');
+export interface SuiteRequest {
+  dbs: string[];
+  /** Test ids; omitted or empty means all. */
+  tests?: string[];
+  /** Recreate each database's container and load the seed first (default true). */
+  initialize?: boolean;
+  /** With initialize: also build every supported search index (default true). */
+  indexes?: boolean;
+  /** Also stream raw k6 output. */
+  verbose?: boolean;
+  /** Same shape as bench.config.json, merged over the server's profile. `dataset` is not allowed. */
+  overrides?: Record<string, unknown>;
 }
 
-export async function runSuite(o: SuiteRunOptions): Promise<SuiteEngineResult> {
-  const suite = o.adapter.suite;
-  const { cfg, log } = o;
+interface DbPlan {
+  db: string;
+  runnable: Cell[];
+  na: { cell: Cell; reason: string }[];
+}
 
-  const plan = makePlan(cfg);
-  const cells = buildCells({ suite, cfg, plan }, o.selection);
-  const runnable = cells.filter((c) => suite.support(c.feature).ok);
+export interface PreparedSuite {
+  req: SuiteRequest;
+  cfg: ServerConfig;
+  dbs: DbPlan[];
+  plan: PlanEvent;
+}
 
-  // ---------------------------------------------------------------- setup --
-  const needed = new Set<SuiteTable>();
-  for (const c of runnable) for (const t of c.needs) needed.add(t);
-  const needsSeed = runnable.some((c) => c.feature.kind !== 'write');
-  const needsDocuments =
-    needed.has('documents') || runnable.some((c) => c.feature.kind === 'write' && c.feature.test === 'w4');
+interface Outcome {
+  db: string;
+  cell: string;
+  vus?: number;
+  status: 'ok' | 'na' | 'failed';
+  reason?: string;
+  compact?: Compact;
+}
 
-  log(`  preparing schema (${cfg.dataset.tablePrefix}* tables)`);
-  await suite.resetSchema(cfg, { documents: needsDocuments });
+const TAIL_LINES = 15;
 
-  const loadMs: Record<string, number> = {};
-  const seed = async (
-    table: SuiteTable,
-    count: number,
-    make: (p: DataPlan, id: number) => SuiteRow,
-  ): Promise<void> => {
-    const t0 = performance.now();
-    const chunk = cfg.dataset.loadChunk;
-    for (let start = 1; start <= count; start += chunk) {
-      const end = Math.min(count, start + chunk - 1);
-      const rows: SuiteRow[] = [];
-      for (let id = start; id <= end; id++) rows.push(make(plan, id));
-      await suite.bulkInsert(table, rows);
+/**
+ * Keys a suite request may override. They shape the matrix or what k6 is told.
+ * Everything else is read by the server from its own profile (the R3 cutoff,
+ * R7 range, R8 sort cap, R10 doc shape) or comes from the seed (dataset).
+ */
+const OVERRIDABLE = ['concurrency', 'limits', 'shapes', 'readModes', 'run', 'writes', 'reads'];
+const OVERRIDABLE_READS = ['r4', 'r5'];
+
+/** The per-run settings the UI pre-fills its advanced box with (the form owns the matrix keys). */
+export function editableDefaults(cfg: ServerConfig): Record<string, unknown> {
+  return { writes: cfg.writes, reads: { r4: cfg.reads.r4, r5: cfg.reads.r5 } };
+}
+
+const isObj = (v: unknown): v is Record<string, unknown> => typeof v === 'object' && v !== null && !Array.isArray(v);
+
+/** Validates the request and works out every cell, without touching a database. */
+export async function prepareSuite(body: unknown, base: ServerConfig): Promise<PreparedSuite> {
+  if (!isObj(body)) throw new BadParams('body must be a JSON object');
+  const req = body as unknown as SuiteRequest;
+  if (!Array.isArray(req.dbs) || req.dbs.length === 0) throw new BadParams('dbs must be a non-empty list');
+  for (const db of req.dbs) if (!DATABASES.includes(db)) throw new BadParams(`unknown database "${db}"; known: ${DATABASES.join(', ')}`);
+  const tests = new Set(req.tests?.length ? req.tests : ALL_TESTS);
+  for (const t of tests) if (!(ALL_TESTS as readonly string[]).includes(t)) throw new BadParams(`unknown test "${t}"`);
+
+  const overrides = req.overrides ?? {};
+  if (!isObj(overrides)) throw new BadParams('overrides must be an object');
+  if ('dataset' in overrides) throw new BadParams('overrides.dataset is not allowed: dataset sizes come from the seed; regenerate it instead');
+  for (const key of Object.keys(overrides)) {
+    if (!OVERRIDABLE.includes(key)) {
+      throw new BadParams(`overrides.${key} is not a per-run setting; overridable: ${OVERRIDABLE.join(', ')}`);
     }
-    loadMs[table] = performance.now() - t0;
-    log(`  loaded ${count.toLocaleString('en-US')} ${table} in ${Math.round(loadMs[table]!)}ms`);
-  };
-
-  if (needsSeed) {
-    await seed('users', plan.users, userRow);
-    if (needed.has('posts')) await seed('posts', plan.posts, postRow);
-    if (needed.has('likes')) await seed('likes', plan.likes, likeRow);
-    if (needed.has('documents')) await seed('documents', plan.documents, docRow);
   }
-  await suite.afterLoad();
-
-  // ------------------------------------------------------------- estimate --
-  let runs = 0;
-  let timedSeconds = 0;
-  for (const c of runnable) {
-    for (const conc of cfg.concurrency) {
-      runs++;
-      if (c.runner(conc).kind === 'timed') {
-        timedSeconds += (cfg.run.durationSec + cfg.run.warmupSec) * cfg.run.repeats;
-      }
-    }
-  }
-  log(
-    `  ${cells.length} cells (${cells.length - runnable.length} not applicable), ${runs} runs; ` +
-      `timed cells alone take about ${Math.ceil(timedSeconds / 60)} min`,
-  );
-
-  // ------------------------------------------------------------ execution --
-  const results: SuiteCellResult[] = [];
-  const explain: Record<string, ExplainOut> = {};
-  const indexes: IndexBuild[] = [];
-  const traversals: TraversalResult[] = [];
-  let activeIndex: IndexKind | null = null;
-
-  const ensureIndex = async (kind: IndexKind | null): Promise<void> => {
-    if (activeIndex && activeIndex !== kind) {
-      await suite.dropIndex(activeIndex).catch(() => {});
-      activeIndex = null;
-    }
-    if (kind && activeIndex !== kind) {
-      const t0 = performance.now();
-      await suite.createIndex(kind);
-      const buildMs = performance.now() - t0;
-      const sizeBytes = await suite.indexSizeBytes(kind).catch(() => null);
-      indexes.push({ kind, buildMs, sizeBytes });
-      log(`  built index ${kind} in ${Math.round(buildMs)}ms`);
-      activeIndex = kind;
-    }
-  };
-
-  const blank = (
-    cell: TestCell,
-    key: string,
-    concurrency: number,
-    status: CellStatus,
-    reason: string,
-  ): SuiteCellResult => ({
-    test: cell.id,
-    group: cell.group,
-    title: cell.title,
-    shape: cell.shape,
-    mode: cell.mode,
-    limit: cell.limit,
-    variant: cell.variant,
-    concurrency,
-    status,
-    reason,
-    ops: 0,
-    wallMs: 0,
-    opsPerSec: 0,
-    rowsPerSec: 0,
-    rowsPerQuery: 0,
-    latencyMs: null,
-    errors: 0,
-    ukViolations: 0,
-    sampleErrors: [],
-    queryKey: key,
-  });
-
-  const measured = (cell: TestCell, key: string, concurrency: number, m: Measure): SuiteCellResult => {
-    const seconds = m.wallMs / 1000;
-    return {
-      ...blank(cell, key, concurrency, 'ok', ''),
-      reason: '',
-      ops: m.ops,
-      wallMs: m.wallMs,
-      opsPerSec: m.ops / seconds,
-      rowsPerSec: m.rows / seconds,
-      rowsPerQuery: m.ops > 0 ? m.rows / m.ops : 0,
-      latencyMs: m.latency,
-      errors: m.errors,
-      ukViolations: m.ukViolations,
-      sampleErrors: m.sampleErrors,
-    };
-  };
-
-  const runCell = async (cell: TestCell, key: string, concurrency: number): Promise<SuiteCellResult> => {
-    const runner = cell.runner(concurrency);
-    const isUniqueViolation = (e: unknown): boolean => suite.isUniqueViolation(e);
-
-    if (runner.kind === 'timed') {
-      const runs: Measure[] = [];
-      for (let r = 0; r < cfg.run.repeats; r++) {
-        runs.push(
-          await runTimed({
-            concurrency,
-            durationMs: cfg.run.durationSec * 1000,
-            warmupMs: cfg.run.warmupSec * 1000,
-            op: runner.op,
-            isUniqueViolation,
-          }),
+  if (isObj(overrides.reads)) {
+    for (const key of Object.keys(overrides.reads)) {
+      if (!OVERRIDABLE_READS.includes(key)) {
+        throw new BadParams(
+          `overrides.reads.${key} is read by the server itself, so a per-run override would not take effect; ` +
+            `change it in bench.config.json and restart the server (per-run: reads.${OVERRIDABLE_READS.join(', reads.')})`,
         );
       }
-      // Report the run whose throughput is closest to the median.
-      const throughput = (m: Measure): number => m.ops / (m.wallMs / 1000);
-      const med = median(runs.map(throughput));
-      const pick = runs.reduce((best, m) =>
-        Math.abs(throughput(m) - med) < Math.abs(throughput(best) - med) ? m : best,
-      );
-      return measured(cell, key, concurrency, pick);
     }
+  }
 
-    if (runner.kind === 'fixed') {
-      if (runner.prepare) await runner.prepare();
-      const m = await runFixed({ concurrency, totalOps: runner.totalOps, op: runner.op, isUniqueViolation });
-      return measured(cell, key, concurrency, m);
+  let cfg: ServerConfig;
+  try {
+    cfg = await loadConfig(base.profile, overrides);
+  } catch (err) {
+    throw new BadParams((err as Error).message);
+  }
+  const manifest = await readManifest(base);
+  const cells = buildCells(cfg, tests, manifest.limits);
+
+  const dbs: DbPlan[] = [];
+  for (const db of req.dbs) {
+    const cov = coverage(await engineInfo(db));
+    const p: DbPlan = { db, runnable: [], na: [] };
+    for (const cell of cells) {
+      const reason = cell.coverage.map((k) => cov[k]).find((v) => v && v !== 'ok');
+      if (reason) p.na.push({ cell, reason });
+      else p.runnable.push(cell);
     }
+    dbs.push(p);
+  }
 
-    const t = await runTraversal({ concurrency, walk: runner.walk });
-    traversals.push({
-      test: cell.id,
-      shape: cell.shape ?? '-',
-      mode: cell.mode ?? '-',
-      pageSize: runner.pageSize,
-      concurrency,
-      pages: t.pages,
-      rows: t.rows,
-      totalMs: t.totalMs,
-      perPageMs: t.perPageMs,
-    });
-    const latency = Float64Array.from(t.allPageMs);
-    return measured(cell, key, concurrency, {
-      ops: latency.length,
-      wallMs: t.wallMs,
-      rows: t.rows * concurrency,
-      latency: summarize(latency, latency.length),
-      errors: t.errors,
-      ukViolations: 0,
-      sampleErrors: t.sampleErrors,
-    });
+  const levels = cfg.concurrency.length;
+  const runs = dbs.reduce((a, d) => a + d.runnable.length * levels, 0);
+  const timedSec = dbs.reduce(
+    (a, d) => a + d.runnable.filter((c) => c.timed).length * levels * (cfg.run.durationSec + cfg.run.warmupSec), 0);
+  const plan: PlanEvent = {
+    type: 'plan',
+    runId: new Date().toISOString().replace(/[:.]/g, '-'),
+    profile: cfg.profile,
+    dbs: dbs.map((d) => ({ db: d.db, cells: d.runnable.length + d.na.length, na: d.na.length, runs: d.runnable.length * levels })),
+    runs,
+    timedMinutes: timedSec / 60,
   };
+  return { req, cfg, dbs, plan };
+}
 
-  for (const cell of cells) {
-    const key = queryKey(cell.id, cell.shape, cell.mode, cell.limit, cell.variant);
-    const label = describeCell(cell);
+let running = false;
 
-    const support = suite.support(cell.feature);
-    if (!support.ok) {
-      log(`  ${label}: N/A — ${support.reason}`);
-      for (const c of cfg.concurrency) results.push(blank(cell, key, c, 'na', support.reason));
-      continue;
-    }
+export async function runSuite(
+  s: PreparedSuite,
+  base: ServerConfig,
+  baseUrl: string,
+  emit: (e: SuiteEvent) => void,
+  signal: AbortSignal,
+): Promise<void> {
+  if (running) throw new HttpError(409, 'a suite is already running', 'busy');
+  const k6 = findK6();
+  if (!k6) throw new HttpError(501, K6_MISSING, 'no_k6');
+  running = true;
 
-    try {
-      if (cell.needsIndex !== undefined) await ensureIndex(cell.needsIndex);
-    } catch (err) {
-      const reason = `index setup failed: ${message(err)}`;
-      log(`  ${label}: ${reason}`);
-      for (const c of cfg.concurrency) results.push(blank(cell, key, c, 'error', reason));
-      continue;
-    }
+  const { cfg, plan } = s;
+  const dir = resolve(PATHS.results, plan.runId);
+  const outcomes: Outcome[] = [];
+  let index = 0;
 
-    if (cell.explainQuery && !(key in explain)) {
-      explain[key] = await suite
-        .explain(cell.explainQuery)
-        .catch((err: unknown): ExplainOut => ({ text: `explain failed: ${message(err)}`, indexUsed: null }));
-    }
+  try {
+    await mkdir(dir, { recursive: true });
+    await Bun.write(resolve(dir, 'run.json'), JSON.stringify({ request: s.req, config: cfg }, null, 2));
+    emit(plan);
 
-    for (const c of cfg.concurrency) {
-      const inFlight = cell.inFlightRows(c);
-      if (inFlight > cfg.guards.maxInFlightRows) {
-        const reason =
-          `would hold ${inFlight.toLocaleString('en-US')} rows in flight, over ` +
-          `guards.maxInFlightRows (${cfg.guards.maxInFlightRows.toLocaleString('en-US')})`;
-        log(`  ${label} @${c}: skipped — ${reason}`);
-        results.push(blank(cell, key, c, 'skipped', reason));
+    for (const d of s.dbs) {
+      if (signal.aborted) break;
+      const init = s.req.initialize !== false;
+      // k6 writes its summaries here, so it must exist even when nothing else writes to it (no initialize).
+      await mkdir(resolve(dir, d.db), { recursive: true });
+      emit({ type: 'db-start', db: d.db, initialize: init });
+      try {
+        if (init) {
+          const r = await initialize(d.db, base, (text) => emit({ type: 'log', text }), { indexes: s.req.indexes !== false });
+          await Bun.write(resolve(dir, d.db, 'initialize.json'), JSON.stringify(r, null, 2));
+          emit({
+            type: 'db-ready', db: d.db, downMs: r.container.downMs, upMs: r.container.upMs, loadMs: r.loadMs, indexMs: r.indexMs,
+          });
+        } else {
+          if (!dbState(d.db)) throw new Error(`${d.db} is not initialized; run with initialize on`);
+          emit({ type: 'db-ready', db: d.db });
+        }
+      } catch (err) {
+        emit({ type: 'db-failed', db: d.db, message: (err as Error).message });
+        index += d.runnable.length * cfg.concurrency.length;
         continue;
       }
 
+      for (const { cell, reason } of d.na) {
+        outcomes.push({ db: d.db, cell: cell.label, status: 'na', reason });
+        emit({ type: 'cell-na', db: d.db, cell: cell.label, reason });
+      }
+
+      // Search indexes the database has now; whatever a no-index cell drops is rebuilt before we leave it.
+      const engine = await engineFor(d.db);
+      const before = [...ready(d.db).indexes];
       try {
-        const r = await runCell(cell, key, c);
-        results.push(r);
-        log(
-          `  ${label} @${c}  ${Math.round(r.opsPerSec).toLocaleString('en-US')} ops/s` +
-            `  p95 ${(r.latencyMs?.p95 ?? 0).toFixed(1)}ms  rows/op ${r.rowsPerQuery.toFixed(0)}` +
-            (r.errors ? `  errors ${r.errors}${r.ukViolations ? ` (uk ${r.ukViolations})` : ''}` : ''),
-        );
-        if (r.sampleErrors[0]) log(`      ! ${r.sampleErrors[0]}`);
-      } catch (err) {
-        log(`  ${label} @${c}: error — ${message(err)}`);
-        results.push(blank(cell, key, c, 'error', message(err)));
+        for (const cell of d.runnable) {
+          if (signal.aborted) break;
+          let indexError: string | null = null;
+          try {
+            await applyIndexes(d.db, engine, cell, emit);
+          } catch (err) {
+            indexError = `could not set up indexes: ${(err as Error).message}`;
+          }
+          for (const vus of cfg.concurrency) {
+            if (signal.aborted) break;
+            index++;
+            const ev = { db: d.db, cell: cell.label, vus, index, total: plan.runs };
+            emit({ type: 'cell-start', ...ev });
+            const r = indexError
+              ? { reason: indexError, tail: '' }
+              : await runCell(k6, cell, d.db, vus, cfg, baseUrl, dir, s.req.verbose === true, emit, signal);
+            if (r.compact) {
+              outcomes.push({ db: d.db, cell: cell.label, vus, status: 'ok', compact: r.compact });
+              emit({ type: 'cell-result', ...ev, compact: r.compact });
+            } else {
+              outcomes.push({ db: d.db, cell: cell.label, vus, status: 'failed', reason: r.reason });
+              emit({ type: 'cell-failed', ...ev, reason: r.reason, tail: r.tail });
+            }
+          }
+        }
+      } finally {
+        // Leave the database with the indexes it had before the suite, even after Stop or a failure.
+        for (const kind of before) {
+          try {
+            const ms = await setIndex(d.db, engine, kind, true);
+            if (ms !== null) emit({ type: 'log', text: `  index: rebuilt ${kind} (${Math.round(ms)} ms), restoring the database's indexes` });
+          } catch (err) {
+            emit({ type: 'log', text: `  index: could not rebuild ${kind}: ${(err as Error).message}` });
+          }
+        }
       }
     }
+  } finally {
+    running = false;
+    await writeSummary(dir, plan, cfg, s.dbs.map((d) => d.db), outcomes).catch(() => {});
+    emit({
+      type: 'done',
+      runId: plan.runId,
+      dir,
+      ok: outcomes.filter((o) => o.status === 'ok').length,
+      na: outcomes.filter((o) => o.status === 'na').length,
+      failed: outcomes.filter((o) => o.status === 'failed').length,
+      aborted: signal.aborted,
+    });
   }
+}
 
-  // Assigned inside closures, so widen it back before the final cleanup.
-  const leftover = activeIndex as IndexKind | null;
-  if (leftover) await suite.dropIndex(leftover).catch(() => {});
+/** Drops what the cell must run without, builds what it must run with; reports each change. */
+async function applyIndexes(db: string, engine: Engine, cell: Cell, emit: (e: SuiteEvent) => void): Promise<void> {
+  for (const kind of cell.noIndex) {
+    const ms = await setIndex(db, engine, kind, false);
+    if (ms !== null) emit({ type: 'log', text: `  index: dropped ${kind} (${Math.round(ms)} ms) for the no-index cells` });
+  }
+  for (const kind of cell.needIndex) {
+    const ms = await setIndex(db, engine, kind, true);
+    if (ms !== null) emit({ type: 'log', text: `  index: built ${kind} (${Math.round(ms)} ms)` });
+  }
+}
 
-  return { loadMs, cells: results, explain, indexes, traversals };
+async function runCell(
+  k6: string,
+  cell: Cell,
+  db: string,
+  vus: number,
+  cfg: ServerConfig,
+  baseUrl: string,
+  dir: string,
+  verbose: boolean,
+  emit: (e: SuiteEvent) => void,
+  signal: AbortSignal,
+): Promise<{ compact?: Compact; reason: string; tail: string }> {
+  const file = resolve(dir, db, `${cell.label.replace(/[^\w+-]+/g, '_')}@${vus}.json`);
+  const env: Record<string, string | number> = {
+    DB: db, BASE_URL: baseUrl, VUS: vus, DURATION: cfg.run.durationSec, WARMUP: cfg.run.warmupSec, OUT: file, ...cell.env,
+  };
+  const args = [k6, 'run', '--no-color', ...Object.entries(env).flatMap(([k, v]) => ['-e', `${k}=${v}`]),
+    resolve(PATHS.k6, cell.script)];
+
+  const proc = Bun.spawn(args, { stdout: 'pipe', stderr: 'pipe' });
+  const kill = (): void => proc.kill();
+  signal.addEventListener('abort', kill);
+
+  // Keep the last lines for a failure report; stream everything when verbose.
+  const tail: string[] = [];
+  const pump = async (stream: ReadableStream<Uint8Array>): Promise<void> => {
+    const decoder = new TextDecoder();
+    let rest = '';
+    for await (const chunk of stream as unknown as AsyncIterable<Uint8Array>) {
+      rest += decoder.decode(chunk, { stream: true });
+      const lines = rest.split('\n');
+      rest = lines.pop() ?? '';
+      for (const line of lines) {
+        tail.push(line);
+        if (tail.length > TAIL_LINES) tail.shift();
+        if (verbose) emit({ type: 'k6', text: line });
+      }
+    }
+    if (rest) tail.push(rest);
+  };
+  await Promise.all([pump(proc.stdout), pump(proc.stderr)]);
+  const code = await proc.exited;
+  signal.removeEventListener('abort', kill);
+
+  if (signal.aborted) return { reason: 'stopped', tail: '' };
+  const summary = Bun.file(file);
+  if (code !== 0 || !(await summary.exists())) {
+    return { reason: `k6 exited ${code}`, tail: tail.filter((l) => l.trim()).map((l) => `    ${l}`).join('\n') };
+  }
+  const { compact } = (await summary.json()) as { compact: Compact };
+  return { compact, reason: '', tail: '' };
+}
+
+async function writeSummary(dir: string, plan: PlanEvent, cfg: ServerConfig, dbs: string[], outcomes: Outcome[]): Promise<void> {
+  const fmt = (v: number | undefined): string => (v === undefined ? '' : String(Math.round(v * 100) / 100));
+  const lines: string[] = [`# Run ${plan.runId}`, '', `Profile \`${cfg.profile}\`, concurrency ${cfg.concurrency.join(', ')}.`, ''];
+  lines.push('Latency in ms. `http` is end to end as k6 saw it; `db` is the server-side time of the database call alone.', '');
+  for (const db of dbs) {
+    lines.push(`## ${db}`, '');
+    lines.push('| cell | VUs | req/s | http p50 | http p95 | http p99 | db p50 | db p95 | db p99 | rows/op | errors | uk |');
+    lines.push('| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |');
+    for (const o of outcomes.filter((x) => x.db === db && x.status === 'ok')) {
+      const c = o.compact!;
+      lines.push(`| ${o.cell} | ${o.vus} | ${fmt(c.reqs?.rate)} | ${fmt(c.http_req_duration?.med)} | ${fmt(c.http_req_duration?.['p(95)'])} | ` +
+        `${fmt(c.http_req_duration?.['p(99)'])} | ${fmt(c.db_ms?.med)} | ${fmt(c.db_ms?.['p(95)'])} | ${fmt(c.db_ms?.['p(99)'])} | ` +
+        `${fmt(c.rows?.avg)} | ${fmt(c.errors?.count) || 0} | ${fmt(c.uk_violations?.count) || 0} |`);
+    }
+    const notRun = outcomes.filter((x) => x.db === db && x.status !== 'ok');
+    if (notRun.length) {
+      lines.push('', '**Not run**', '');
+      for (const o of notRun) lines.push(`- ${o.cell}${o.vus ? ` @ ${o.vus}` : ''}: ${o.status === 'na' ? 'N/A' : 'failed'} -- ${o.reason}`);
+    }
+    lines.push('');
+  }
+  await Bun.write(resolve(dir, 'summary.md'), lines.join('\n'));
+  await Bun.write(resolve(dir, 'outcomes.json'), JSON.stringify(outcomes, null, 2));
 }

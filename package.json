@@ -1,19 +1,15 @@
 {
   "name": "db-benchmarks",
   "type": "module",
-  "engines": {
-    "node": ">=22.18.0"
-  },
   "scripts": {
-    "bench": "node src/cli.ts",
-    "bench:bun": "bun src/cli.ts",
-    "suite": "node src/cli.ts",
-    "suite:smoke": "node src/cli.ts --profile smoke",
-    "render": "node scripts/render-results.ts",
-    "typecheck": "tsc --noEmit"
+    "server": "bun src/index.ts",
+    "seed": "bun src/seed/generate.ts",
+    "bench": "bun src/suite/cli.ts",
+    "typecheck": "tsc --noEmit && tsc -p src/ui",
+    "build": "bun run typecheck && bun src/build.ts",
+    "start": "bun dist/index.js"
   },
   "dependencies": {
-    "@elastic/elasticsearch": "^8.15.3",
     "cassandra-driver": "^4.9.0",
     "mongodb": "^6.21.0",
     "mssql": "^12.7.2",
@@ -23,9 +19,11 @@
   "devDependencies": {
     "@types/mssql": "^12.3.0",
     "@types/node": "^26.6.2",
-    "typescript": "~5.9.3"
+    "typescript": "~5.9.3",
+    "@types/bun": "latest"
   },
   "overrides": {
     "adm-zip": "^0.6.1"
-  }
+  },
+  "private": true
 }

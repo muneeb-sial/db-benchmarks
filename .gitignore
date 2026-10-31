@@ -1,10 +1,10 @@
-# package-lock.json is deliberately NOT ignored. Driver versions are part of
-# what this repo measures, so a run is only reproducible if they are pinned.
+# bun.lock is deliberately NOT ignored. Driver versions are part of what this
+# repo measures, so a run is only reproducible if they are pinned.
 
 node_modules/
 
 # Per-database memory overrides (DB_MEM_LIMIT etc.) are machine-local
-databases/*/.env
+src/databases/*/.env
 
 # Logs
 logs
@@ -142,3 +142,6 @@ CLAUDE.md
 
 results
 .vscode
+
+# Generated seed files (bun src/seed/generate.ts)
+src/seed/data/
